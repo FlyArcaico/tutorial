@@ -14,6 +14,11 @@ local essenceFolder
 local active = {} -- [Model] = state
 local essences = {} -- [Part] = { Expires = number, Bob = Tween }
 local zoneCounts = {} -- [zone] = number of living monsters
+local killHandler = nil -- function(player, monsterId): boolean (true = drop an essence)
+
+function Monsters.SetKillHandler(handler)
+	killHandler = handler
+end
 
 local function randomPointInZone(zone)
 	local angle = rng:NextNumber(0, math.pi * 2)
@@ -57,7 +62,7 @@ local function createEssence(monsterId, position)
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.fromScale(1, 1)
 	label.BackgroundTransparency = 1
-	label.Text = def.DisplayName .. " essence\nPress F to absorb"
+	label.Text = "Esencia: " .. def.DisplayName .. "\nPulsa F para absorber"
 	label.TextScaled = true
 	label.Font = Enum.Font.GothamBold
 	label.TextColor3 = Color3.new(1, 1, 1)
@@ -130,20 +135,26 @@ local function spawnMonster(monsterId, zone)
 	model.Parent = monsterFolder
 	root:SetNetworkOwner(nil) -- server controls monsters, so they move smoothly for everyone
 
-	active[model] = {
+	local state = {
 		Def = def,
 		Zone = zone,
 		Humanoid = humanoid,
 		Root = root,
 		LastAttack = 0,
 		NextWander = 0,
+		LastHitBy = nil, -- Player who hit it last gets the kill
 	}
+	active[model] = state
 	zoneCounts[zone] = (zoneCounts[zone] or 0) + 1
 
 	humanoid.Died:Connect(function()
 		active[model] = nil
 		zoneCounts[zone] -= 1
-		createEssence(monsterId, root.Position)
+
+		local killer = state.LastHitBy
+		if killer and killer.Parent and killHandler and killHandler(killer, monsterId) then
+			createEssence(monsterId, root.Position)
+		end
 		for _, descendant in model:GetDescendants() do
 			if descendant:IsA("BasePart") then
 				descendant.Transparency = 0.6
@@ -198,7 +209,7 @@ local function updateMonster(state, now)
 end
 
 -- Damages every monster in front of the character. Returns how many were hit.
-function Monsters.DamageInFront(character, damage, range)
+function Monsters.DamageInFront(player, character, damage, range)
 	local root = character:FindFirstChild("HumanoidRootPart")
 	if not root then
 		return 0
@@ -213,6 +224,7 @@ function Monsters.DamageInFront(character, damage, range)
 			if flat.Magnitude <= reach then
 				local inFront = flat.Magnitude < 4 or root.CFrame.LookVector:Dot(flat.Unit) > 0.2
 				if inFront then
+					state.LastHitBy = player
 					state.Humanoid:TakeDamage(damage)
 					hits += 1
 				end
