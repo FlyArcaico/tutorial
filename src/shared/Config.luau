@@ -15,6 +15,11 @@ Config.Slots = {
 }
 
 Config.StartingSpins = 5 -- spins gratis que tiene cada slot nuevo
+
+-- Modo prueba: estos jugadores pueden elegir raza sin hacer Spin.
+-- En Roblox Studio y para el dueño del juego se activa solo.
+-- Para añadir a alguien más, pon su UserId, por ejemplo: { 12345678 }
+Config.Testers = {}
 Config.DefaultRace = "Human"
 
 --------------------------------------------------------------------------------

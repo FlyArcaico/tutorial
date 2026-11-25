@@ -15,6 +15,7 @@ local getMenuRemote = remotes:WaitForChild("GetMenu")
 local selectSlotRemote = remotes:WaitForChild("SelectSlot")
 local spinRemote = remotes:WaitForChild("Spin")
 local playRemote = remotes:WaitForChild("Play")
+local setRaceRemote = remotes:WaitForChild("SetRace")
 
 local player = Players.LocalPlayer
 local Colors = UI.Colors
@@ -235,8 +236,15 @@ infoText(4, {
 	TextSize = 13,
 	TextColor3 = Colors.Muted,
 })
+local testerHint = infoText(5, {
+	Text = "<b>MODO PRUEBA (solo tú):</b> toca una raza para elegirla sin gastar spins",
+	TextSize = 13,
+	TextColor3 = Color3.fromRGB(255, 210, 90),
+	Visible = false,
+})
 
-local raceRows = {} -- [raceId] = { Frame, Stroke }
+local chooseRace -- se define más abajo (modo prueba)
+local raceRows = {} -- [raceId] = { Frame, Stroke, Button }
 for index, raceId in Config.RaceOrder do
 	local race = Config.Races[raceId]
 	local rarity = Config.Rarities[race.Rarity]
@@ -268,8 +276,30 @@ for index, raceId in Config.RaceOrder do
 		),
 	})
 
-	raceRows[raceId] = { Frame = row, Stroke = stroke }
+	-- Botón invisible encima de la fila (solo en modo prueba)
+	local rowButton = create("TextButton", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Text = "",
+		ZIndex = 3,
+		Visible = false,
+	}, row)
+	rowButton.Activated:Connect(function()
+		chooseRace(raceId)
+	end)
+
+	raceRows[raceId] = { Frame = row, Stroke = stroke, Button = rowButton }
 end
+
+local function updateTesterMode()
+	local isTester = player:GetAttribute("IsTester") == true
+	testerHint.Visible = isTester
+	for _, row in raceRows do
+		row.Button.Visible = isTester
+	end
+end
+player:GetAttributeChangedSignal("IsTester"):Connect(updateTesterMode)
+updateTesterMode()
 
 -- Barra inferior: Spin y Jugar
 local bottomBar = create("Frame", {
@@ -601,6 +631,25 @@ backButton.Activated:Connect(function()
 		showMainScreen()
 	end
 end)
+
+-- Modo prueba: elegir raza directamente
+function chooseRace(raceId)
+	if busy or not currentSlot or raceId == currentSlot.Race then
+		return
+	end
+	busy = true
+	local ok, result = pcall(setRaceRemote.InvokeServer, setRaceRemote, raceId)
+	busy = false
+
+	if ok and result and result.Ok then
+		currentSlot.Race = result.Race
+		showRace(result.Race)
+		updateSpinButton()
+		toast("Modo prueba: ahora eres " .. Config.Races[result.Race].Name, Color3.fromRGB(255, 210, 90))
+	else
+		toast(if ok and result then result.Message else "Error al cambiar de raza")
+	end
+end
 
 --------------------------------------------------------------------------------
 -- API

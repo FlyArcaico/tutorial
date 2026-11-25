@@ -17,6 +17,7 @@ local Remotes = {
 	SelectSlot = make("RemoteFunction", "SelectSlot"), -- entrar en un slot
 	Spin = make("RemoteFunction", "Spin"), -- tirar por una raza
 	Play = make("RemoteFunction", "Play"), -- entrar al mundo
+	SetRace = make("RemoteFunction", "SetRace"), -- modo prueba: elegir raza sin Spin
 	ReturnToMenu = make("RemoteEvent", "ReturnToMenu"), -- volver al menú
 
 	-- Juego

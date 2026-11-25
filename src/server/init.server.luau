@@ -34,6 +34,10 @@ Remotes.Spin.OnServerInvoke = function(player)
 	return PlayerData.Spin(player)
 end
 
+Remotes.SetRace.OnServerInvoke = function(player, raceId)
+	return PlayerData.SetRace(player, raceId)
+end
+
 Remotes.Play.OnServerInvoke = function(player)
 	return PlayerData.Play(player)
 end

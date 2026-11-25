@@ -2,6 +2,7 @@
 -- nivel y habilidades. También controla el menú, los spins y el aspecto del personaje.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
@@ -406,6 +407,35 @@ function PlayerData.Spin(player)
 	return { Ok = true, Race = slot.Race, Spins = slot.Spins }
 end
 
+-- Modo prueba: en Studio, el dueño del juego o los UserId de Config.Testers
+local function isTester(player)
+	if RunService:IsStudio() then
+		return true
+	end
+	if game.CreatorType == Enum.CreatorType.User and player.UserId == game.CreatorId then
+		return true
+	end
+	return table.find(Config.Testers, player.UserId) ~= nil
+end
+
+-- Modo prueba: elegir raza sin gastar spins
+function PlayerData.SetRace(player, raceId)
+	if not isTester(player) then
+		return fail("Solo disponible en modo prueba")
+	end
+	local session = sessions[player]
+	if not session or session.Playing or not session.SlotIndex then
+		return fail("Primero elige un slot")
+	end
+	if type(raceId) ~= "string" or not Config.Races[raceId] then
+		return fail("Raza no válida")
+	end
+
+	local slot = session.Profile.Data.Slots[session.SlotIndex]
+	slot.Race = raceId
+	return { Ok = true, Race = slot.Race, Spins = slot.Spins }
+end
+
 function PlayerData.Play(player)
 	local session = sessions[player]
 	if not session or session.Playing or not session.SlotIndex then
@@ -557,6 +587,7 @@ local function onPlayerAdded(player)
 		onCharacterAdded(player, character)
 	end)
 
+	player:SetAttribute("IsTester", isTester(player))
 	sessions[player] = { Profile = profile, SlotIndex = nil, Playing = false }
 end
 
