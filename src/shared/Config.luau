@@ -15,12 +15,19 @@ Config.Slots = {
 }
 
 Config.StartingSpins = 5 -- spins gratis que tiene cada slot nuevo
+Config.DefaultRace = "Human"
 
 -- Modo prueba: estos jugadores pueden elegir raza sin hacer Spin.
 -- En Roblox Studio y para el dueño del juego se activa solo.
 -- Para añadir a alguien más, pon su UserId, por ejemplo: { 12345678 }
 Config.Testers = {}
-Config.DefaultRace = "Human"
+
+--------------------------------------------------------------------------------
+-- Velocidad
+--------------------------------------------------------------------------------
+
+-- Velocidad base: la del Human y la de los monstruos
+Config.BaseSpeed = 16
 
 --------------------------------------------------------------------------------
 -- Rarezas y razas
@@ -35,8 +42,11 @@ Config.Rarities = {
 	Common = { Name = "Común", Weight = 569, Color = Color3.fromRGB(200, 200, 200) },
 }
 
--- Orden de la más rara a la más común
+-- Razas principales que salen en el Spin, de la más rara a la más común
 Config.RaceOrder = { "Slime", "Summoned", "Ogre", "Elf", "Human" }
+
+-- Orden en que se muestran en el menú (incluye subtipos debajo de su raza)
+Config.DisplayOrder = { "Slime", "Summoned", "Ogre", "Elf", "MajorElf", "Human" }
 
 Config.Races = {
 	Slime = {
@@ -62,28 +72,54 @@ Config.Races = {
 		Rarity = "Epic",
 		Color = Color3.fromRGB(190, 110, 90),
 		Description = "Un guerrero enorme con más fuerza, defensa y velocidad.",
-		Traits = { "+50% vida", "+25% daño", "+15% velocidad" },
+		Traits = { "+50% vida", "+25% daño", "+15% velocidad", "50% más grande" },
 		HealthMult = 1.5,
 		DamageMult = 1.25,
 		SpeedMult = 1.15,
-		BodyScale = 1.3,
+		BodyScale = 1.5,
 	},
 	Elf = {
 		Name = "Elf",
 		Rarity = "Rare",
 		Color = Color3.fromRGB(100, 200, 110),
 		Description = "Inteligente y ágil: aprende más rápido y se mueve con rapidez.",
-		Traits = { "+25% XP", "+20% velocidad", "+10% daño" },
+		Traits = { "+15% velocidad", "+25% XP", "+10% daño" },
 		XPMult = 1.25,
-		SpeedMult = 1.2,
+		SpeedMult = 1.15,
 		DamageMult = 1.1,
+		ElfEars = true,
+	},
+	MajorElf = {
+		Name = "Major Elf",
+		Rarity = "Rare",
+		SubtypeOf = "Elf", -- subtipo: sale dentro de Elf
+		SubtypeChance = 5, -- % de que un Elf salga como Major Elf
+		Color = Color3.fromRGB(60, 220, 120),
+		Description = "Un elfo noble que domina la magia del viento: lanza cortes de aire y resiste la magia.",
+		Traits = {
+			"Air Manipulation (E): cortes de viento a distancia",
+			"+50% daño mágico",
+			"Resiste la magia: -50% daño mágico recibido",
+			"+3 de oro por monstruo de bajo nivel",
+			"+15% velocidad, +25% XP",
+		},
+		XPMult = 1.25,
+		SpeedMult = 1.15,
+		DamageMult = 1.1,
+		MagicDamageMult = 1.5,
+		MagicResist = 0.5,
+		GoldMult = 3,
+		BodyScale = 1.15,
+		ElfEars = true,
+		ElfHat = true,
+		Abilities = { "AirSlash" },
 	},
 	Human = {
 		Name = "Human",
 		Rarity = "Common",
 		Color = Color3.fromRGB(230, 230, 230),
 		Description = "Un humano común. Nada especial... por ahora.",
-		Traits = { "Sin bonus" },
+		Traits = { "Sin bonus (velocidad base)" },
 	},
 }
 
@@ -94,26 +130,58 @@ for _, race in Config.Races do
 	race.SpeedMult = race.SpeedMult or 1
 	race.XPMult = race.XPMult or 1
 	race.RangeBonus = race.RangeBonus or 0
+	race.MagicDamageMult = race.MagicDamageMult or 1
+	race.MagicResist = race.MagicResist or 0
+	race.GoldMult = race.GoldMult or 1
+	race.BodyScale = race.BodyScale or 1
+	race.Abilities = race.Abilities or {}
 	race.CanAbsorb = race.CanAbsorb == true
 end
 
--- Devuelve una raza al azar según las probabilidades de su rareza
+-- Devuelve una raza al azar según las probabilidades de su rareza (y sus subtipos)
 function Config.RollRace(rng)
 	local roll = rng:NextInteger(1, 1000)
 	local total = 0
+	local picked = Config.DefaultRace
 	for _, raceId in Config.RaceOrder do
 		total += Config.Rarities[Config.Races[raceId].Rarity].Weight
 		if roll <= total then
-			return raceId
+			picked = raceId
+			break
 		end
 	end
-	return Config.DefaultRace
+
+	for subtypeId, race in Config.Races do
+		if race.SubtypeOf == picked and rng:NextNumber(0, 100) < race.SubtypeChance then
+			return subtypeId
+		end
+	end
+	return picked
 end
 
--- "0,1%", "56,9%"...
-function Config.ChanceText(rarityId)
-	local percent = Config.Rarities[rarityId].Weight / 10
+local function percentText(percent)
 	return (string.gsub(string.format("%g%%", percent), "%.", ","))
+end
+
+-- Probabilidad total de una raza como texto: "0,1%", "56,9%", "1,5%"...
+function Config.ChanceText(raceId)
+	local race = Config.Races[raceId]
+	local percent = Config.Rarities[race.Rarity].Weight / 10
+	if race.SubtypeOf then
+		percent = percent * race.SubtypeChance / 100
+	else
+		-- quitar la parte que se convierte en subtipos
+		for _, other in Config.Races do
+			if other.SubtypeOf == raceId then
+				percent = percent * (1 - other.SubtypeChance / 100)
+			end
+		end
+	end
+	return percentText(math.floor(percent * 100 + 0.5) / 100)
+end
+
+function Config.SubtypeChanceText(raceId)
+	return percentText(Config.Races[raceId].SubtypeChance)
 end
 
 --------------------------------------------------------------------------------
@@ -123,6 +191,20 @@ end
 Config.Attack = {
 	Range = 8, -- studs delante del personaje (más la mitad de su tamaño)
 	Cooldown = 0.5, -- segundos entre ataques
+}
+
+-- Ataques especiales de algunas razas (además del clic normal)
+Config.Abilities = {
+	AirSlash = {
+		DisplayName = "Air Manipulation",
+		Description = "Corte de viento que atraviesa a los enemigos",
+		Key = "E",
+		Cooldown = 1.5,
+		Range = 45, -- studs que recorre el corte
+		Width = 6, -- ancho del corte
+		DamageMult = 1.2, -- respecto al ataque normal (luego se suma el bonus mágico)
+		Magic = true,
+	},
 }
 
 Config.AbsorbRange = 12 -- distancia máxima para absorber una esencia
@@ -175,13 +257,16 @@ Config.Skills = {
 	},
 }
 
+-- Gold = oro base por derrotarlo (+1 para todas las razas).
+-- Se multiplica por el GoldMult de la raza: el Major Elf gana x3 (+3).
 Config.Monsters = {
 	Bat = {
 		DisplayName = "Murciélago de cueva",
 		Health = 25,
 		Damage = 5,
-		Speed = 17,
+		Magic = true, -- su chillido es daño mágico (el Major Elf lo resiste)
 		XP = 15,
+		Gold = 1,
 		Skill = "HighJump",
 		Color = Color3.fromRGB(70, 55, 95),
 		Size = Vector3.new(2.5, 2, 2.5),
@@ -191,8 +276,8 @@ Config.Monsters = {
 		DisplayName = "Lobo del bosque",
 		Health = 45,
 		Damage = 8,
-		Speed = 15,
 		XP = 25,
+		Gold = 1,
 		Skill = "Dash",
 		Color = Color3.fromRGB(125, 115, 105),
 		Size = Vector3.new(3, 3, 5),
@@ -202,8 +287,8 @@ Config.Monsters = {
 		DisplayName = "Gólem de roca",
 		Health = 160,
 		Damage = 18,
-		Speed = 9,
 		XP = 90,
+		Gold = 1,
 		Skill = "StoneSkin",
 		Color = Color3.fromRGB(135, 130, 120),
 		Size = Vector3.new(6, 7, 5),
@@ -251,7 +336,7 @@ function Config.GetBody(raceId, level)
 	if race.CanAbsorb then
 		return Config.GetForm(level)
 	end
-	return { Name = race.Name, Size = 3, Color = race.Color, DamageBonus = 0 }
+	return { Name = race.Name, Size = 3 * race.BodyScale, Color = race.Color, DamageBonus = 0 }
 end
 
 function Config.XPToNextLevel(level)
@@ -273,13 +358,32 @@ function Config.AttackDamage(level, raceId)
 	return math.floor(base * race.DamageMult)
 end
 
+function Config.AbilityDamage(level, raceId, abilityId)
+	local race = Config.Races[raceId]
+	local ability = Config.Abilities[abilityId]
+	local damage = Config.AttackDamage(level, raceId) * ability.DamageMult
+	if ability.Magic then
+		damage *= race.MagicDamageMult
+	end
+	return math.floor(damage)
+end
+
 function Config.AttackRange(level, raceId)
 	local race = Config.Races[raceId]
 	return Config.Attack.Range + Config.GetBody(raceId, level).Size / 2 + race.RangeBonus
 end
 
-function Config.WalkSpeed(level, raceId)
-	return (16 + math.min(level, 20) * 0.4) * Config.Races[raceId].SpeedMult
+function Config.WalkSpeed(raceId)
+	return Config.BaseSpeed * Config.Races[raceId].SpeedMult
+end
+
+-- Oro por derrotar un monstruo: +1 normal; el Major Elf gana x3 (+3 en monstruos de bajo nivel)
+function Config.GoldForKill(raceId, monsterId)
+	return Config.Monsters[monsterId].Gold * Config.Races[raceId].GoldMult
+end
+
+function Config.HasAbility(raceId, abilityId)
+	return table.find(Config.Races[raceId].Abilities, abilityId) ~= nil
 end
 
 return Config

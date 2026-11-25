@@ -135,6 +135,73 @@ Remotes.Absorb.OnServerEvent:Connect(function(player)
 	end
 end)
 
+--------------------------------------------------------------------------------
+-- Ataques especiales (Air Manipulation del Major Elf)
+--------------------------------------------------------------------------------
+
+local lastCast = {} -- [Player] = { [abilityId] = tiempo }
+
+-- Corte de viento: una media luna verde que vuela hacia delante
+local function playAirSlashEffect(origin, direction, ability)
+	local flat = Vector3.new(direction.X, 0, direction.Z).Unit
+	local start = CFrame.lookAt(origin, origin + flat)
+
+	for index, offset in { 0, -1.2 } do
+		local slash = Instance.new("Part")
+		slash.Name = "AirSlash"
+		slash.Size = Vector3.new(ability.Width, 0.25, 1.2)
+		slash.Color = if index == 1 then Color3.fromRGB(190, 255, 210) else Color3.fromRGB(110, 230, 150)
+		slash.Material = Enum.Material.Neon
+		slash.Transparency = if index == 1 then 0.1 else 0.45
+		slash.Anchored = true
+		slash.CanCollide = false
+		slash.CanQuery = false
+		slash.CanTouch = false
+		slash.CFrame = start * CFrame.new(0, 0, offset) * CFrame.Angles(0, 0, math.rad(15))
+		local mesh = Instance.new("SpecialMesh")
+		mesh.MeshType = Enum.MeshType.Sphere
+		mesh.Parent = slash
+		slash.Parent = Workspace
+
+		local tween = TweenService:Create(slash, TweenInfo.new(0.35, Enum.EasingStyle.Linear), {
+			CFrame = start * CFrame.new(0, 0, -ability.Range + offset) * CFrame.Angles(0, 0, math.rad(15)),
+			Transparency = 1,
+		})
+		tween.Completed:Connect(function()
+			slash:Destroy()
+		end)
+		tween:Play()
+	end
+end
+
+Remotes.Cast.OnServerEvent:Connect(function(player, abilityId)
+	local slot = PlayerData.Get(player)
+	local character = getAliveCharacter(player)
+	if not slot or not character or type(abilityId) ~= "string" then
+		return
+	end
+	local ability = Config.Abilities[abilityId]
+	if not ability or not Config.HasAbility(slot.Race, abilityId) then
+		return
+	end
+
+	local now = os.clock()
+	lastCast[player] = lastCast[player] or {}
+	if now - (lastCast[player][abilityId] or 0) < ability.Cooldown then
+		return
+	end
+	lastCast[player][abilityId] = now
+
+	local root = character.HumanoidRootPart
+	local origin = root.Position
+	local direction = root.CFrame.LookVector
+	local damage = Config.AbilityDamage(slot.Level, slot.Race, abilityId)
+
+	Monsters.DamageInLine(player, origin, direction, ability.Range, ability.Width, damage)
+	playAirSlashEffect(origin, direction, ability)
+end)
+
 Players.PlayerRemoving:Connect(function(player)
 	lastAttack[player] = nil
+	lastCast[player] = nil
 end)

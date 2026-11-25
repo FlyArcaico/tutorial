@@ -122,7 +122,7 @@ local function spawnMonster(monsterId, zone)
 	humanoid.HipHeight = 0.2
 	humanoid.MaxHealth = def.Health
 	humanoid.Health = def.Health
-	humanoid.WalkSpeed = def.Speed
+	humanoid.WalkSpeed = Config.BaseSpeed
 	humanoid.BreakJointsOnDeath = false
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
 	humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOn
@@ -198,7 +198,12 @@ local function updateMonster(state, now)
 		local reach = math.max(state.Def.Size.X, state.Def.Size.Z) / 2 + 3.5
 		if distance <= reach and now - state.LastAttack >= 1.2 then
 			state.LastAttack = now
-			target.Humanoid:TakeDamage(state.Def.Damage)
+			local damage = state.Def.Damage
+			if state.Def.Magic then
+				-- PlayerData pone "MagicResist" en el personaje según su raza
+				damage *= 1 - (target:GetAttribute("MagicResist") or 0)
+			end
+			target.Humanoid:TakeDamage(damage)
 		end
 	elseif awayFromHome then
 		state.Humanoid:MoveTo(zone.Center)
@@ -228,6 +233,32 @@ function Monsters.DamageInFront(player, character, damage, range)
 					state.Humanoid:TakeDamage(damage)
 					hits += 1
 				end
+			end
+		end
+	end
+	return hits
+end
+
+-- Damages every monster along a straight line (used by Air Manipulation). Returns how many were hit.
+function Monsters.DamageInLine(player, origin, direction, length, width, damage)
+	local flatDirection = Vector3.new(direction.X, 0, direction.Z)
+	if flatDirection.Magnitude < 0.01 then
+		return 0
+	end
+	flatDirection = flatDirection.Unit
+
+	local hits = 0
+	for _, state in active do
+		if state.Humanoid.Health > 0 then
+			local offset = state.Root.Position - origin
+			offset = Vector3.new(offset.X, 0, offset.Z)
+			local along = offset:Dot(flatDirection)
+			local sideways = (offset - flatDirection * along).Magnitude
+			local monsterRadius = math.max(state.Def.Size.X, state.Def.Size.Z) / 2
+			if along >= -2 and along <= length + monsterRadius and sideways <= width / 2 + monsterRadius then
+				state.LastHitBy = player
+				state.Humanoid:TakeDamage(damage)
+				hits += 1
 			end
 		end
 	end

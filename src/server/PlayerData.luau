@@ -1,5 +1,5 @@
 -- Guarda el progreso (ProfileService): 3 slots por jugador, cada uno con su raza,
--- nivel y habilidades. También controla el menú, los spins y el aspecto del personaje.
+-- nivel, oro y habilidades. También controla el menú, los spins y el aspecto del personaje.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -15,6 +15,7 @@ local function newSlot()
 	return {
 		Level = 1,
 		XP = 0,
+		Gold = 0,
 		Race = Config.DefaultRace,
 		Spins = Config.StartingSpins,
 		Skills = {}, -- [skillId] = true (solo Slime)
@@ -82,6 +83,7 @@ local function summarize(profile, index)
 	return {
 		Index = index,
 		Level = slot.Level,
+		Gold = slot.Gold,
 		Race = slot.Race,
 		Spins = slot.Spins,
 		Locked = not isUnlocked(profile, index),
@@ -95,6 +97,17 @@ local function waitForSession(player)
 		task.wait(0.1)
 	end
 	return sessions[player]
+end
+
+-- Modo prueba: en Studio, el dueño del juego o los UserId de Config.Testers
+local function isTester(player)
+	if RunService:IsStudio() then
+		return true
+	end
+	if game.CreatorType == Enum.CreatorType.User and player.UserId == game.CreatorId then
+		return true
+	end
+	return table.find(Config.Testers, player.UserId) ~= nil
 end
 
 --------------------------------------------------------------------------------
@@ -116,6 +129,7 @@ local function updateAttributes(player, slot)
 	player:SetAttribute("Level", slot.Level)
 	player:SetAttribute("XP", slot.XP)
 	player:SetAttribute("XPNeeded", Config.XPToNextLevel(slot.Level))
+	player:SetAttribute("Gold", slot.Gold)
 	player:SetAttribute("Race", slot.Race)
 	player:SetAttribute("Form", Config.GetBody(slot.Race, slot.Level).Name)
 	player:SetAttribute("Skills", table.concat(skills, ","))
@@ -123,6 +137,7 @@ local function updateAttributes(player, slot)
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if leaderstats then
 		leaderstats.Level.Value = slot.Level
+		leaderstats.Oro.Value = slot.Gold
 	end
 end
 
@@ -139,13 +154,16 @@ local function applyStats(player, slot, heal)
 	if heal then
 		humanoid.Health = maxHealth
 	end
-	humanoid.WalkSpeed = Config.WalkSpeed(slot.Level, slot.Race)
+	humanoid.WalkSpeed = Config.WalkSpeed(slot.Race)
 	humanoid.UseJumpPower = true
 	humanoid.JumpPower = if race.CanAbsorb and slot.Skills.HighJump then Config.Skills.HighJump.JumpPower else 50
+
+	-- Monsters lee esto para reducir el daño mágico
+	character:SetAttribute("MagicResist", race.MagicResist)
 end
 
 --------------------------------------------------------------------------------
--- Aspecto del personaje según la raza
+-- Aspecto del personaje según la raza (avatares R6)
 --------------------------------------------------------------------------------
 
 local function weld(part, target)
@@ -167,6 +185,17 @@ local function makeExtraPart(name, size, cframe, color)
 	part.CanTouch = false
 	part.Massless = true
 	part:SetAttribute("RacePart", true)
+	return part
+end
+
+-- Pega una pieza decorativa a la cabeza
+local function addToHead(character, head, name, size, offset, color, shape)
+	local part = makeExtraPart(name, size, head.CFrame * offset, color)
+	if shape then
+		part.Shape = shape
+	end
+	weld(part, head)
+	part.Parent = character
 	return part
 end
 
@@ -199,7 +228,7 @@ local function applySlimeBody(character, form)
 
 	local d = form.Size
 	local height = d * 0.8
-	-- El HumanoidRootPart está a unos 3 studs del suelo
+	-- En R6 el HumanoidRootPart está a 3 studs del suelo
 	local base = root.CFrame * CFrame.new(0, height / 2 - 3, 0)
 
 	local function sphere(name, size, cframe, color, transparency)
@@ -233,95 +262,121 @@ local function applySlimeBody(character, form)
 	body.Parent = character
 end
 
--- Elf: orejas puntiagudas
-local function addElfEars(character)
-	local head = character:WaitForChild("Head", 10)
-	if not head then
-		return
-	end
+-- Elf y Major Elf: orejas puntiagudas
+local function addElfEars(character, head, s)
 	for _, side in { -1, 1 } do
-		local ear = makeExtraPart(
+		addToHead(
+			character,
+			head,
 			"ElfEar",
-			Vector3.new(0.15, 0.7, 0.3),
-			head.CFrame * CFrame.new(side * (head.Size.X / 2 + 0.05), 0.15, 0) * CFrame.Angles(0, 0, -side * 0.6),
+			Vector3.new(0.15, 0.7, 0.3) * s,
+			CFrame.new(side * 0.68 * s, 0.1 * s, 0) * CFrame.Angles(0, 0, -side * 0.6),
 			head.Color
 		)
-		weld(ear, head)
-		ear.Parent = character
 	end
 end
 
--- Ogre: cuernos
-local function addOgreHorns(character)
-	local head = character:WaitForChild("Head", 10)
-	if not head then
-		return
+-- Major Elf: gorro verde puntiagudo con banda dorada y pluma
+local function addElfHat(character, head, s)
+	-- Quitar sombreros del avatar para que se vea el gorro
+	for _, child in character:GetChildren() do
+		if child:IsA("Accessory") and child.AccessoryType == Enum.AccessoryType.Hat then
+			child:Destroy()
+		end
 	end
-	for _, side in { -1, 1 } do
-		local horn = makeExtraPart(
-			"OgreHorn",
-			Vector3.new(0.9, 0.3, 0.3),
-			head.CFrame
-				* CFrame.new(side * head.Size.X * 0.28, head.Size.Y / 2 + 0.3, 0)
-				* CFrame.Angles(0, 0, math.rad(90 - side * 25)),
-			Color3.fromRGB(240, 230, 200)
+
+	local green = Color3.fromRGB(40, 150, 70)
+	local gold = Color3.fromRGB(255, 200, 60)
+	local up = CFrame.Angles(0, 0, math.rad(90)) -- los cilindros apuntan hacia arriba
+
+	addToHead(
+		character,
+		head,
+		"HatBrim",
+		Vector3.new(0.12, 1.9, 1.9) * s,
+		CFrame.new(0, 0.55 * s, 0) * up,
+		green,
+		Enum.PartType.Cylinder
+	)
+	addToHead(
+		character,
+		head,
+		"HatBand",
+		Vector3.new(0.18, 1.32, 1.32) * s,
+		CFrame.new(0, 0.68 * s, 0) * up,
+		gold,
+		Enum.PartType.Cylinder
+	)
+
+	-- Cono hecho con cilindros cada vez más pequeños, inclinado hacia atrás
+	local diameters = { 1.25, 1.0, 0.75, 0.5, 0.28 }
+	for index, diameter in diameters do
+		addToHead(
+			character,
+			head,
+			"HatCone",
+			Vector3.new(0.34, diameter, diameter) * s,
+			CFrame.new(0, (0.75 + index * 0.3) * s, index * 0.09 * s) * up,
+			green,
+			Enum.PartType.Cylinder
 		)
-		horn.Shape = Enum.PartType.Cylinder
-		weld(horn, head)
-		horn.Parent = character
+	end
+
+	addToHead(
+		character,
+		head,
+		"HatFeather",
+		Vector3.new(0.1, 1.1, 0.3) * s,
+		CFrame.new(0.6 * s, 1.1 * s, 0.1 * s) * CFrame.Angles(0, 0, -0.5),
+		Color3.fromRGB(240, 240, 220)
+	)
+end
+
+-- Ogre: cuernos
+local function addOgreHorns(character, head, s)
+	for _, side in { -1, 1 } do
+		addToHead(
+			character,
+			head,
+			"OgreHorn",
+			Vector3.new(0.9, 0.3, 0.3) * s,
+			CFrame.new(side * 0.4 * s, 0.75 * s, 0) * CFrame.Angles(0, 0, math.rad(90 - side * 25)),
+			Color3.fromRGB(240, 230, 200),
+			Enum.PartType.Cylinder
+		)
 	end
 end
 
 -- Invocado: fuego en las manos
 local function addFireHands(character)
-	for _, handName in { "RightHand", "LeftHand", "Right Arm", "Left Arm" } do
-		local hand = character:FindFirstChild(handName)
-		if hand then
+	for _, armName in { "Right Arm", "Left Arm" } do
+		local arm = character:FindFirstChild(armName)
+		if arm then
 			local fire = Instance.new("Fire")
 			fire.Size = 2
 			fire.Heat = 4
 			fire.Color = Color3.fromRGB(255, 120, 30)
 			fire.SecondaryColor = Color3.fromRGB(255, 220, 80)
-			fire.Parent = hand
+			fire.Parent = arm
 
 			local light = Instance.new("PointLight")
 			light.Color = Color3.fromRGB(255, 140, 50)
 			light.Range = 8
-			light.Parent = hand
+			light.Parent = arm
 		end
 	end
 end
 
+local function waitForAppearance(player)
+	local deadline = os.clock() + 5
+	while not player:HasAppearanceLoaded() and player.Parent and os.clock() < deadline do
+		task.wait(0.1)
+	end
+end
+
 local function loadCharacter(player)
-	local slot = PlayerData.Get(player)
-	if not slot then
-		return
-	end
-	local race = Config.Races[slot.Race]
-
-	local description
-	if player.UserId > 0 then
-		local ok, result = pcall(function()
-			return Players:GetHumanoidDescriptionFromUserId(player.UserId)
-		end)
-		if ok then
-			description = result
-		end
-	end
-
-	if not PlayerData.Get(player) then
-		return -- volvió al menú mientras cargaba
-	end
-
-	if description then
-		if race.BodyScale then
-			description.HeightScale *= race.BodyScale
-			description.WidthScale *= race.BodyScale
-			description.DepthScale *= race.BodyScale
-			description.HeadScale *= race.BodyScale
-		end
-		player:LoadCharacterWithHumanoidDescription(description)
-	else
+	if PlayerData.Get(player) then
+		-- El juego está configurado como R6 (StarterPlayer.GameSettingsAvatar en default.project.json)
 		player:LoadCharacter()
 	end
 end
@@ -333,25 +388,48 @@ local function onCharacterAdded(player, character)
 	end
 	local race = Config.Races[slot.Race]
 
+	local humanoid = character:WaitForChild("Humanoid", 10)
+	if not humanoid then
+		return
+	end
+	if humanoid.RigType ~= Enum.HumanoidRigType.R6 then
+		warn("[Slime Rebirth] El personaje no es R6. Revisa Game Settings > Avatar > Avatar Type = R6")
+	end
+
 	if race.CanAbsorb then
 		for _, descendant in character:GetDescendants() do
 			hideHumanBody(descendant)
 		end
 		character.DescendantAdded:Connect(hideHumanBody)
 		applySlimeBody(character, Config.GetForm(slot.Level))
-	elseif slot.Race == "Elf" then
-		addElfEars(character)
-	elseif slot.Race == "Ogre" then
-		addOgreHorns(character)
-	elseif race.Fire then
-		character:WaitForChild("Head", 10)
-		addFireHands(character)
+	else
+		waitForAppearance(player)
+		if character.Parent == nil then
+			return
+		end
+
+		if race.BodyScale ~= 1 then
+			character:ScaleTo(race.BodyScale)
+		end
+
+		local head = character:FindFirstChild("Head")
+		local s = character:GetScale()
+		if head then
+			if race.ElfEars then
+				addElfEars(character, head, s)
+			end
+			if race.ElfHat then
+				addElfHat(character, head, s)
+			end
+			if slot.Race == "Ogre" then
+				addOgreHorns(character, head, s)
+			end
+		end
+		if race.Fire then
+			addFireHands(character)
+		end
 	end
 
-	local humanoid = character:WaitForChild("Humanoid", 10)
-	if not humanoid then
-		return
-	end
 	applyStats(player, slot, true)
 
 	-- Reaparecer al morir (CharacterAutoLoads está desactivado por el menú)
@@ -407,17 +485,6 @@ function PlayerData.Spin(player)
 	return { Ok = true, Race = slot.Race, Spins = slot.Spins }
 end
 
--- Modo prueba: en Studio, el dueño del juego o los UserId de Config.Testers
-local function isTester(player)
-	if RunService:IsStudio() then
-		return true
-	end
-	if game.CreatorType == Enum.CreatorType.User and player.UserId == game.CreatorId then
-		return true
-	end
-	return table.find(Config.Testers, player.UserId) ~= nil
-end
-
 -- Modo prueba: elegir raza sin gastar spins
 function PlayerData.SetRace(player, raceId)
 	if not isTester(player) then
@@ -455,6 +522,8 @@ function PlayerData.Play(player)
 		end
 		if race.CanAbsorb then
 			notify(player, "¡Renaciste como Slime! Derrota monstruos y pulsa F para absorberlos.", CYAN)
+		elseif #race.Abilities > 0 then
+			notify(player, "¡Has entrado como " .. race.Name .. "! Usa tus ataques especiales (E).", CYAN)
 		else
 			notify(player, "¡Has entrado como " .. race.Name .. "! Derrota monstruos para subir de nivel.", CYAN)
 		end
@@ -511,6 +580,7 @@ function PlayerData.AddXP(player, amount)
 end
 
 -- Lo llama Monsters cuando un jugador derrota a un monstruo.
+-- Da el oro (todas las razas) y la XP (todas menos Slime, que la gana al absorber).
 -- Devuelve true si debe aparecer una esencia (solo para Slime).
 function PlayerData.OnMonsterKilled(player, monsterId)
 	local slot = PlayerData.Get(player)
@@ -520,12 +590,16 @@ function PlayerData.OnMonsterKilled(player, monsterId)
 	end
 
 	local race = Config.Races[slot.Race]
+	local gold = Config.GoldForKill(slot.Race, monsterId)
+	slot.Gold += gold
+	updateAttributes(player, slot)
+
 	if race.CanAbsorb then
-		return true -- el Slime gana la XP al absorber
+		return true
 	end
 
 	local xp = math.floor(def.XP * race.XPMult + 0.5)
-	notify(player, "Derrotaste a " .. def.DisplayName .. "  +" .. xp .. " XP", WHITE)
+	notify(player, "Derrotaste a " .. def.DisplayName .. "  +" .. xp .. " XP  +" .. gold .. " oro", WHITE)
 	PlayerData.AddXP(player, xp)
 	return false
 end
@@ -578,9 +652,11 @@ local function onPlayerAdded(player)
 
 	local leaderstats = Instance.new("Folder")
 	leaderstats.Name = "leaderstats"
-	local level = Instance.new("IntValue")
-	level.Name = "Level"
-	level.Parent = leaderstats
+	for _, statName in { "Level", "Oro" } do
+		local value = Instance.new("IntValue")
+		value.Name = statName
+		value.Parent = leaderstats
+	end
 	leaderstats.Parent = player
 
 	player.CharacterAdded:Connect(function(character)

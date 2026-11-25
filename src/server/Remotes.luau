@@ -23,6 +23,7 @@ local Remotes = {
 	-- Juego
 	Attack = make("RemoteEvent", "Attack"), -- cliente -> servidor: atacar
 	Absorb = make("RemoteEvent", "Absorb"), -- cliente -> servidor: absorber
+	Cast = make("RemoteEvent", "Cast"), -- cliente -> servidor: usar un ataque especial (Air Manipulation...)
 	Notify = make("RemoteEvent", "Notify"), -- servidor -> cliente: mostrar un mensaje
 }
 

@@ -169,7 +169,7 @@ local viewport = create("ViewportFrame", {
 }, leftPanel)
 local viewportCamera = Instance.new("Camera")
 viewportCamera.FieldOfView = 35
-viewportCamera.CFrame = CFrame.lookAt(Vector3.new(0, 1.5, -13), Vector3.new(0, 0.3, 0))
+viewportCamera.CFrame = RacePreview.CameraCFrame
 viewportCamera.Parent = viewport
 viewport.CurrentCamera = viewportCamera
 
@@ -245,19 +245,46 @@ local testerHint = infoText(5, {
 
 local chooseRace -- se define más abajo (modo prueba)
 local raceRows = {} -- [raceId] = { Frame, Stroke, Button }
-for index, raceId in Config.RaceOrder do
+for index, raceId in Config.DisplayOrder do
 	local race = Config.Races[raceId]
 	local rarity = Config.Rarities[race.Rarity]
+	local isSubtype = race.SubtypeOf ~= nil
 
+	-- Los subtipos van metidos hacia la derecha, debajo de su raza
 	local row = create("Frame", {
 		Size = UDim2.new(1, -10, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundColor3 = Colors.PanelLight,
+		BackgroundColor3 = if isSubtype then Color3.fromRGB(38, 58, 52) else Colors.PanelLight,
 		LayoutOrder = 10 + index,
 	}, infoScroll)
 	UI.round(row, 8)
-	UI.padding(row, 8)
+	local rowPadding = UI.padding(row, 8)
+	if isSubtype then
+		rowPadding.PaddingLeft = UDim.new(0, 28)
+	end
 	local stroke = create("UIStroke", { Thickness = 2, Color = rarity.Color, Enabled = false }, row)
+
+	local header
+	if isSubtype then
+		header = string.format(
+			'<font color="#%s"><b>↳ SUBTIPO de %s · %s de los %s</b></font>   <b>%s</b>  <font color="#%s">(%s total)</font>',
+			rarity.Color:ToHex(),
+			Config.Races[race.SubtypeOf].Name,
+			Config.SubtypeChanceText(raceId),
+			Config.Races[race.SubtypeOf].Name,
+			race.Name,
+			Colors.Muted:ToHex(),
+			Config.ChanceText(raceId)
+		)
+	else
+		header = string.format(
+			'<font color="#%s"><b>%s · %s</b></font>   <b>%s</b>',
+			rarity.Color:ToHex(),
+			rarity.Name,
+			Config.ChanceText(raceId),
+			race.Name
+		)
+	end
 
 	UI.label(row, {
 		Size = UDim2.fromScale(1, 0),
@@ -265,15 +292,7 @@ for index, raceId in Config.RaceOrder do
 		TextXAlignment = Enum.TextXAlignment.Left,
 		RichText = true,
 		TextSize = 14,
-		Text = string.format(
-			'<font color="#%s"><b>%s · %s</b></font>   <b>%s</b>\n<font color="#%s">%s</font>',
-			rarity.Color:ToHex(),
-			rarity.Name,
-			Config.ChanceText(race.Rarity),
-			race.Name,
-			Colors.Muted:ToHex(),
-			race.Description
-		),
+		Text = header .. string.format('\n<font color="#%s">%s</font>', Colors.Muted:ToHex(), race.Description),
 	})
 
 	-- Botón invisible encima de la fila (solo en modo prueba)
@@ -359,7 +378,11 @@ local function showRace(raceId)
 
 	raceNameLabel.Text = race.Name
 	raceNameLabel.TextColor3 = rarity.Color
-	rarityLabel.Text = rarity.Name .. "  ·  " .. Config.ChanceText(race.Rarity)
+	if race.SubtypeOf then
+		rarityLabel.Text = rarity.Name .. "  ·  Subtipo de " .. Config.Races[race.SubtypeOf].Name
+	else
+		rarityLabel.Text = rarity.Name .. "  ·  " .. Config.ChanceText(raceId)
+	end
 	rarityLabel.TextColor3 = rarity.Color
 	leftStroke.Color = rarity.Color
 
@@ -460,7 +483,9 @@ local function buildSlotCard(summary)
 		Font = Enum.Font.GothamBold,
 		TextSize = 14,
 		TextColor3 = rarity.Color,
-		Text = rarity.Name,
+		Text = if race.SubtypeOf
+			then rarity.Name .. " · Subtipo de " .. Config.Races[race.SubtypeOf].Name
+			else rarity.Name,
 	})
 	UI.label(card, {
 		Position = UDim2.fromOffset(0, 100),
@@ -473,7 +498,7 @@ local function buildSlotCard(summary)
 		Size = UDim2.new(1, 0, 0, 20),
 		TextSize = 14,
 		TextColor3 = Colors.Muted,
-		Text = "Spins: " .. summary.Spins,
+		Text = "Spins: " .. summary.Spins .. "   ·   Oro: " .. (summary.Gold or 0),
 	})
 
 	local enterButton = UI.button(card, "Entrar", Colors.Green, {
@@ -560,7 +585,7 @@ local function playSpinAnimation(finalRaceId)
 		local raceId = finalRaceId
 		if step < steps then
 			repeat
-				raceId = Config.RaceOrder[math.random(1, #Config.RaceOrder)]
+				raceId = Config.DisplayOrder[math.random(1, #Config.DisplayOrder)]
 			until raceId ~= previous
 		end
 		previous = raceId
