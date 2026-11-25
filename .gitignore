@@ -12,3 +12,6 @@ sourcemap.json
 # Wally packages (se regeneran con .\install-packages.ps1)
 /Packages
 /ServerPackages
+
+# Built game file (rebuild with: rojo build -o SlimeRebirth.rbxlx)
+/SlimeRebirth.rbxlx
