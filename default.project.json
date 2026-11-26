@@ -23,7 +23,8 @@
 
     "StarterPlayer": {
       "$properties": {
-        "GameSettingsAvatar": "R6"
+        "GameSettingsAvatar": "R6",
+        "EnableMouseLockOption": false
       },
       "StarterPlayerScripts": {
         "Client": {

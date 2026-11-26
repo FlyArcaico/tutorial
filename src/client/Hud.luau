@@ -679,7 +679,12 @@ makeAction("Absorb", 3, "🌀", "Absorber", "F", Color3.fromRGB(70, 140, 235), 0
 end)
 makeAction("Dash", 4, "💨", "Embestir", "Q", Color3.fromRGB(170, 130, 90), Config.Skills.Dash.Cooldown, dash)
 
--- Correr: mantener Control izquierdo (en móvil, el botón activa/desactiva)
+-- Correr: mantener Shift izquierdo o Control izquierdo (en móvil, el botón activa/desactiva).
+-- En Roblox Studio es mejor Shift: Studio usa Ctrl+A, Ctrl+D... como atajos.
+local SPRINT_KEYS = {
+	[Enum.KeyCode.LeftShift] = true,
+	[Enum.KeyCode.LeftControl] = true,
+}
 local wantsSprint = false
 local function setSprint(enabled)
 	if wantsSprint ~= enabled then
@@ -687,15 +692,20 @@ local function setSprint(enabled)
 		sprintRemote:FireServer(enabled)
 	end
 end
-local sprintAction = makeAction("Sprint", 5, "🏃", "Correr", "Ctrl", Color3.fromRGB(200, 170, 50), 0, function()
+local sprintAction = makeAction("Sprint", 5, "🏃", "Correr", "Shift", Color3.fromRGB(200, 170, 50), 0, function()
 	setSprint(not wantsSprint)
 end)
 sprintAction.Button.Visible = UserInputService.TouchEnabled
 
 UserInputService.InputEnded:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.LeftControl then
+	if SPRINT_KEYS[input.KeyCode] then
 		setSprint(false)
 	end
+end)
+
+-- Si la ventana pierde el foco (por ejemplo al hacer clic en Studio), dejar de correr
+UserInputService.WindowFocusReleased:Connect(function()
+	setSprint(false)
 end)
 
 for _, action in orderedActions do
@@ -718,7 +728,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		trigger(actions.Attack)
 		return
 	end
-	if input.KeyCode == Enum.KeyCode.LeftControl then
+	if SPRINT_KEYS[input.KeyCode] then
 		setSprint(true)
 		return
 	end
