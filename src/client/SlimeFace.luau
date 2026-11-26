@@ -1,8 +1,8 @@
 -- Cara del Slime con expresiones, dibujada con líneas de interfaz (SurfaceGui) sobre las
--- placas que crea el servidor (FaceRightEye, FaceLeftEye, FaceMouth).
+-- placas que crea el servidor (FaceRightEye, FaceLeftEye).
 --
 -- Estilo: cara de anime simple y limpia. Cada ojo es UNA sola línea negra, alargada y
--- curvada, más gruesa en el centro y fina en las puntas (sin cejas). Boca diminuta.
+-- curvada, más gruesa en el centro y fina en las puntas (sin cejas). Sin boca.
 --
 -- Expresiones:
 --   Normal     ojos alargados y suavemente curvados (relajado)
@@ -23,7 +23,6 @@ SlimeFace.Expressions = { "Normal", "Energetic", "Happy", "Angry", "Focused", "H
 
 -- El lienzo de cada ojo es 2:1, igual que su placa (alargado)
 local EYE_CANVAS = Vector2.new(160, 80)
-local MOUTH_CANVAS = Vector2.new(80, 50)
 
 --------------------------------------------------------------------------------
 -- Dibujo
@@ -94,32 +93,6 @@ local EYES = {
 	end,
 }
 
-local MOUTHS = {
-	Normal = function(canvas)
-		curve(canvas, V(32, 20), V(40, 30), V(48, 20), 4)
-	end,
-	Energetic = function(canvas)
-		curve(canvas, V(30, 19), V(40, 33), V(50, 19), 4.5)
-	end,
-	Happy = function(canvas)
-		curve(canvas, V(28, 19), V(40, 35), V(52, 19), 4.5)
-	end,
-	Angry = function(canvas)
-		curve(canvas, V(34, 28), V(40, 23), V(46, 28), 3.5)
-	end,
-	-- Concentrado: sin boca
-	Focused = function() end,
-	Hurt = function(canvas) -- boquita ondulada
-		stroke(canvas, V(31, 27), V(36, 22), 3.5)
-		stroke(canvas, V(36, 22), V(40, 27), 3.5)
-		stroke(canvas, V(40, 27), V(44, 22), 3.5)
-		stroke(canvas, V(44, 22), V(49, 27), 3.5)
-	end,
-	Sad = function(canvas)
-		curve(canvas, V(33, 30), V(40, 22), V(47, 30), 3.5)
-	end,
-}
-
 --------------------------------------------------------------------------------
 -- Montar la cara sobre las placas y cambiar de expresión (con fundido suave)
 --------------------------------------------------------------------------------
@@ -140,9 +113,8 @@ function SlimeFace.Attach(body)
 	local plates = {
 		Right = body:FindFirstChild("FaceRightEye"),
 		Left = body:FindFirstChild("FaceLeftEye"),
-		Mouth = body:FindFirstChild("FaceMouth"),
 	}
-	if not plates.Right or not plates.Left or not plates.Mouth then
+	if not plates.Right or not plates.Left then
 		return nil
 	end
 
@@ -172,7 +144,6 @@ function SlimeFace.Attach(body)
 
 	build(plates.Right, EYE_CANVAS, EYES, false)
 	build(plates.Left, EYE_CANVAS, EYES, true)
-	build(plates.Mouth, MOUTH_CANVAS, MOUTHS, false)
 
 	local controller = { Current = nil }
 

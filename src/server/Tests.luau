@@ -104,7 +104,7 @@ function Tests.Run(modules)
 			end
 			check(piece.Role ~= "Eye", form.Name .. ": con placas no debería haber ojos de piezas")
 		end
-		check(faces == 3, form.Name .. ": faltan placas de la cara")
+		check(faces == 2, form.Name .. ": deberían ser 2 placas de cara (los ojos, sin boca)")
 	end
 
 	-- Slime: construirlo de verdad sobre un personaje de prueba
@@ -125,7 +125,8 @@ function Tests.Run(modules)
 			end
 		end
 		check(welds == #SlimeModel.Pieces(Config.Forms[1], { Face = "Plates" }), "Al Slime le faltan uniones animables")
-		check(body:FindFirstChild("FaceMouth") ~= nil, "Al Slime le falta la placa de la boca")
+		check(body:FindFirstChild("FaceRightEye") ~= nil, "Al Slime le falta la placa de los ojos")
+		check(body:FindFirstChild("FaceMouth") == nil, "El Slime no debería tener boca")
 		check(body:GetAttribute("Center") ~= nil, "El Slime no tiene centro para animarlo")
 	end
 	dummy:Destroy()

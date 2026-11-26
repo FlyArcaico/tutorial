@@ -125,12 +125,11 @@ function SlimeModel.Pieces(form, options)
 		})
 	end
 
-	-- Ojos alargados (2:1) en la parte media-alta de la cara, y una boca pequeña
+	-- Ojos alargados (2:1) en la parte media-alta de la cara (sin boca)
 	local eyeX, eyeY = d * 0.19, h * 0.08
 	if faceStyle == "Plates" then
 		facePlate("FaceRightEye", eyeX, eyeY, d * 0.3, d * 0.15)
 		facePlate("FaceLeftEye", -eyeX, eyeY, d * 0.3, d * 0.15)
-		facePlate("FaceMouth", 0, -h * 0.1, d * 0.12, d * 0.075)
 	end
 
 	local eyeColor = Color3.fromRGB(18, 22, 40)

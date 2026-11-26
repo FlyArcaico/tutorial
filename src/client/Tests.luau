@@ -67,7 +67,7 @@ function Tests.Run()
 
 	-- La cara del Slime: montar todas las expresiones sobre placas de prueba
 	local body = Instance.new("Model")
-	for _, name in { "FaceRightEye", "FaceLeftEye", "FaceMouth" } do
+	for _, name in { "FaceRightEye", "FaceLeftEye" } do
 		local plate = Instance.new("Part")
 		plate.Name = name
 		plate.Parent = body
