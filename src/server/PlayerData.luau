@@ -7,6 +7,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Config)
+local SlimeModel = require(ReplicatedStorage.Shared.SlimeModel)
 local ProfileService = require(ServerScriptService.ServerPackages.ProfileService)
 local Remotes = require(script.Parent.Remotes)
 
@@ -281,6 +282,9 @@ local function hideHumanBody(instance)
 	end
 end
 
+-- Construye el Slime con el diseño compartido (shared/SlimeModel.luau).
+-- Cada pieza va unida con un Weld para que el cliente pueda deformar el cuerpo
+-- (rebotar, estirarse, aplastarse...). Ver client/SlimeAnimator.luau.
 local function applySlimeBody(character, form)
 	local root = character:WaitForChild("HumanoidRootPart", 10)
 	if not root then
@@ -296,80 +300,52 @@ local function applySlimeBody(character, form)
 	body.Name = "SlimeBody"
 	body:SetAttribute("RacePart", true)
 
+	-- En R6 el HumanoidRootPart está a 3 studs del suelo: el fondo del slime toca el suelo
 	local d = form.Size
-	local height = d * 0.8
+	local center = CFrame.new(0, SlimeModel.CenterHeight(d) - 3, 0)
 	body:SetAttribute("Size", d)
-	-- En R6 el HumanoidRootPart está a 3 studs del suelo
-	local base = root.CFrame * CFrame.new(0, height / 2 - 3, 0)
+	body:SetAttribute("Height", SlimeModel.Height(d))
+	body:SetAttribute("Center", center)
 
-	-- Se usan Weld (no WeldConstraint) para que el cliente pueda animar las piezas.
-	-- BaseC0 guarda la posición original de cada pieza.
-	local function attach(part)
+	for _, piece in SlimeModel.Pieces(form) do
+		local part = SlimeModel.MakePart(piece, root.CFrame * center * piece.Offset)
+		part:SetAttribute("RacePart", true)
 		local joint = Instance.new("Weld")
 		joint.Part0 = root
 		joint.Part1 = part
-		joint.C0 = root.CFrame:ToObjectSpace(part.CFrame)
+		joint.C0 = center * piece.Offset
 		joint:SetAttribute("BaseC0", joint.C0)
 		joint.Parent = part
 		part.Parent = body
-	end
 
-	local function sphere(name, size, cframe, color, transparency)
-		local part = makeExtraPart(name, size, cframe, color)
-		part.Transparency = transparency
-		local mesh = Instance.new("SpecialMesh")
-		mesh.MeshType = Enum.MeshType.Sphere
-		mesh.Parent = part
-		attach(part)
-		return part
-	end
-
-	-- Interior azul intenso
-	local blob = sphere("Blob", Vector3.new(d, height, d), base, form.Color, 0.05)
-
-	-- Contorno azul clarito alrededor de la silueta (no tapa los ojos)
-	local outline = Instance.new("Highlight")
-	outline.Name = "SlimeOutline"
-	outline.Adornee = blob
-	outline.FillTransparency = 1
-	outline.OutlineColor = Color3.fromRGB(175, 230, 255)
-	outline.OutlineTransparency = 0
-	outline.DepthMode = Enum.HighlightDepthMode.Occluded
-	outline.Parent = body
-
-	-- Ojos de "dormido": cada ojo es una curva ◡ de 3 trocitos, pegada POR FUERA del cuerpo
-	local rx, ry = d / 2, height / 2
-	local function surfaceZ(x, y)
-		local inside = 1 - (x / rx) ^ 2 - (y / ry) ^ 2
-		return -rx * math.sqrt(math.max(inside, 0)) - d * 0.015
-	end
-	local eyeColor = Color3.fromRGB(20, 30, 60)
-	local segment = Vector3.new(d * 0.075, d * 0.032, d * 0.03)
-	for _, side in { -1, 1 } do
-		local ex, ey = side * d * 0.17, height * 0.1
-		-- { desplazamiento x, desplazamiento y, inclinación }: centro abajo, puntas arriba
-		for _, piece in { { 0, -d * 0.012, 0 }, { -d * 0.06, 0, -0.45 }, { d * 0.06, 0, 0.45 } } do
-			local x, y = ex + piece[1], ey + piece[2]
-			local eye = makeExtraPart(
-				"Eye",
-				segment,
-				base * CFrame.new(x, y, surfaceZ(x, y)) * CFrame.Angles(0, -x / rx * 0.9, piece[3]),
-				eyeColor
-			)
-			eye:SetAttribute("SlimeEye", true)
-			attach(eye)
+		-- Luz interior suave
+		if piece.Role == "Core" then
+			local glow = Instance.new("PointLight")
+			glow.Name = "CoreLight"
+			glow.Color = piece.Color
+			glow.Range = d * 2.5
+			glow.Brightness = 0.6
+			glow.Shadows = false
+			glow.Parent = part
 		end
 	end
 
-	sphere(
-		"Shine",
-		Vector3.one * d * 0.13,
-		base * CFrame.new(d * 0.22, height * 0.32, -d * 0.3),
-		Color3.new(1, 1, 1),
-		0.25
-	)
+	-- Contorno azul clarito alrededor de la silueta
+	local outline = Instance.new("Highlight")
+	outline.Name = "SlimeOutline"
+	outline.Adornee = body
+	outline.FillTransparency = 1
+	outline.OutlineColor = Color3.fromRGB(175, 232, 255)
+	outline.OutlineTransparency = 0.1
+	outline.DepthMode = Enum.HighlightDepthMode.Occluded
+	outline.Parent = body
 
 	body.Parent = character
+end
+
+-- Para la autocomprobación: construir el Slime sobre un personaje de prueba
+PlayerData.BuildSlimeBodyForTest = function(character, form)
+	applySlimeBody(character, form)
 end
 
 -- Elf y Major Elf: orejas puntiagudas

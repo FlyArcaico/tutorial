@@ -441,6 +441,8 @@ local function onCast(player, abilityId)
 	local damage = Config.AbilityDamage(PlayerData.GetStats(player), slot.Race, abilityId)
 		* stateDamageMult(state, race)
 	abilityHandlers[abilityId](player, character.HumanoidRootPart, ability, damage)
+	-- Todos ven la animación de lanzar la habilidad (el Slime brilla por dentro)
+	Remotes.AttackFx:FireAllClients(character, if race.CanAbsorb then "SlimeCast" else "Cast")
 
 	-- Sobrecarga de Energía: usar habilidades muy seguido acumula calor
 	if race.Overload then
@@ -472,6 +474,7 @@ local function onAbsorb(player)
 		return
 	end
 
+	Remotes.AttackFx:FireAllClients(character, "SlimeCast")
 	local successes = 0
 	for _, essence in absorbed do
 		local chance = Config.AbsorbChance(slot.Level, essence.Level)
@@ -757,6 +760,11 @@ function Combat.UseItem(player, itemId)
 	end
 	notify(player, "Usaste " .. item.Name, item.Color)
 	return { Ok = true }
+end
+
+-- Para la autocomprobación: ¿tiene código esta habilidad?
+function Combat.HasAbilityHandler(abilityId)
+	return abilityHandlers[abilityId] ~= nil
 end
 
 function Combat.Start()

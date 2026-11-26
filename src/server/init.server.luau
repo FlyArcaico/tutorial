@@ -16,6 +16,20 @@ Monsters.Start()
 PlayerData.Start()
 Combat.Start()
 
+-- En Studio: autocomprobación (el resultado sale en Output)
+if game:GetService("RunService"):IsStudio() then
+	task.defer(function()
+		local ok, problem = pcall(require(script.Tests).Run, {
+			Combat = Combat,
+			Monsters = Monsters,
+			PlayerData = PlayerData,
+		})
+		if not ok then
+			warn("[Autocomprobación] Error al ejecutar las pruebas del servidor:", problem)
+		end
+	end)
+end
+
 -- Menú
 Remotes.GetMenu.OnServerInvoke = function(player)
 	return PlayerData.GetMenu(player)

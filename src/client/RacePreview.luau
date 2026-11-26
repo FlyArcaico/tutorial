@@ -4,6 +4,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local SlimeModel = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SlimeModel"))
 
 local RacePreview = {}
 
@@ -208,38 +209,22 @@ builders.SummonedWater = summonedBuilder("SummonedWater")
 builders.SummonedPlant = summonedBuilder("SummonedPlant")
 builders.Summoned = builders.SummonedFire
 
+-- El Slime usa el mismo diseño que en el juego (shared/SlimeModel.luau), un poco más grande
 function builders.Slime(model)
-	local d = 4
-	local height = d * 0.8
-	local base = CFrame.new(0, FLOOR + height / 2, 0)
-
-	local function sphere(size, cframe, color, transparency)
-		local p = part(model, size, cframe, color, { Transparency = transparency })
-		local mesh = Instance.new("SpecialMesh")
-		mesh.MeshType = Enum.MeshType.Sphere
-		mesh.Parent = p
-	end
-
-	-- Interior azul intenso con un contorno azul clarito por detrás (no tapa la cara)
-	sphere(Vector3.new(d, height, d), base, Color3.fromRGB(45, 125, 250), 0.03)
-	sphere(Vector3.new(d, height, d) * 1.08, base * CFrame.new(0, 0, d * 0.09), Color3.fromRGB(175, 230, 255), 0.35)
-
-	-- Ojos de "dormido": dos curvas ◡ por fuera del cuerpo
-	local rx, ry = d / 2, height / 2
-	for _, side in { -1, 1 } do
-		local ex, ey = side * d * 0.17, height * 0.1
-		for _, piece in { { 0, -d * 0.012, 0 }, { -d * 0.06, 0, -0.45 }, { d * 0.06, 0, 0.45 } } do
-			local x, y = ex + piece[1], ey + piece[2]
-			local z = -rx * math.sqrt(math.max(1 - (x / rx) ^ 2 - (y / ry) ^ 2, 0)) - d * 0.015
-			part(
-				model,
-				Vector3.new(d * 0.075, d * 0.032, d * 0.03),
-				base * CFrame.new(x, y, z) * CFrame.Angles(0, -x / rx * 0.9, piece[3]),
-				Color3.fromRGB(20, 30, 60)
-			)
+	local form = { Size = 4.2, Color = Config.Forms[1].Color }
+	local center = CFrame.new(0, FLOOR + SlimeModel.CenterHeight(form.Size), 0)
+	for _, piece in SlimeModel.Pieces(form) do
+		local p = SlimeModel.MakePart(piece, center * piece.Offset)
+		p.Anchored = true
+		-- En el visor no se ve bien el cristal: un poco más opaco
+		if piece.Role == "Body" then
+			p.Material = Enum.Material.SmoothPlastic
+			p.Transparency = 0.1
+		elseif piece.Role == "Core" then
+			p.Transparency = 0.6
 		end
+		p.Parent = model
 	end
-	sphere(Vector3.one * d * 0.13, base * CFrame.new(d * 0.22, height * 0.32, -d * 0.3), Color3.new(1, 1, 1), 0.25)
 end
 
 function RacePreview.Build(raceId)

@@ -753,6 +753,11 @@ end
 -- Inicio
 --------------------------------------------------------------------------------
 
+-- Para la autocomprobación: ¿tiene diseño este monstruo?
+function Monsters.HasBuilder(monsterId)
+	return builders[monsterId] ~= nil
+end
+
 function Monsters.Start()
 	monsterFolder = Instance.new("Folder")
 	monsterFolder.Name = "Monsters"

@@ -28,6 +28,8 @@ attackFxRemote.OnClientEvent:Connect(function(character, style)
 	end
 	if style == "SlimeLunge" then
 		SlimeAnimator.PlayAttack(character)
+	elseif style == "SlimeCast" then
+		SlimeAnimator.PlayCast(character)
 	else
 		Animator.PlayAttack(character, style)
 	end
@@ -56,3 +58,13 @@ player.CharacterAdded:Connect(function(character)
 end)
 
 Menu.Open()
+
+-- En Studio: autocomprobación de las animaciones (el resultado sale en Output)
+if game:GetService("RunService"):IsStudio() then
+	task.defer(function()
+		local ok, problem = pcall(require(script.Tests).Run)
+		if not ok then
+			warn("[Autocomprobación] Error al ejecutar las pruebas del cliente:", problem)
+		end
+	end)
+end
