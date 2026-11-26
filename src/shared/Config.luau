@@ -687,4 +687,68 @@ function Config.GetQuest(questId)
 	return nil
 end
 
+--------------------------------------------------------------------------------
+-- Objetos (tienda e inventario)
+--------------------------------------------------------------------------------
+
+-- Effect: Heal / Mana / Stamina (fracción del máximo) o Spin (+1 spin al slot)
+Config.Items = {
+	HealthPotion = {
+		Name = "Poción de vida",
+		Icon = "❤️",
+		Description = "Recupera el 40% de tu vida.",
+		Price = 15,
+		Effect = "Heal",
+		Amount = 0.4,
+		Color = Color3.fromRGB(230, 70, 80),
+	},
+	ManaPotion = {
+		Name = "Poción de maná",
+		Icon = "💧",
+		Description = "Recupera el 50% de tu maná.",
+		Price = 20,
+		Effect = "Mana",
+		Amount = 0.5,
+		Color = Color3.fromRGB(90, 120, 255),
+	},
+	StaminaPotion = {
+		Name = "Poción de stamina",
+		Icon = "⚡",
+		Description = "Recupera toda tu stamina.",
+		Price = 10,
+		Effect = "Stamina",
+		Amount = 1,
+		Color = Color3.fromRGB(230, 200, 60),
+	},
+	SpinToken = {
+		Name = "Ficha de Spin",
+		Icon = "🎰",
+		Description = "Da +1 Spin a este slot para volver a tirar tu raza en el menú.",
+		Price = 150,
+		Effect = "Spin",
+		Amount = 1,
+		Color = Color3.fromRGB(180, 100, 255),
+	},
+}
+
+Config.ItemOrder = { "HealthPotion", "ManaPotion", "StaminaPotion", "SpinToken" }
+Config.PotionCooldown = 3 -- segundos entre pociones
+Config.MaxItemStack = 99
+
+-- Ajustes del jugador (se guardan en su cuenta, no en el slot)
+Config.Settings = {
+	{
+		Id = "DamageNumbers",
+		Name = "Números de daño",
+		Description = "Ver el daño que haces encima de los monstruos",
+	},
+	{
+		Id = "MonsterBars",
+		Name = "Barras de vida de monstruos",
+		Description = "Ver la vida y el nivel de los monstruos",
+	},
+	{ Id = "SprintFov", Name = "Efecto de cámara al correr", Description = "La cámara se abre un poco al correr" },
+	{ Id = "Messages", Name = "Mensajes en pantalla", Description = "Avisos de XP, oro, misiones..." },
+}
+
 return Config

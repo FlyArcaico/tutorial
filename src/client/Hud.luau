@@ -793,7 +793,8 @@ local function refreshFast()
 	if sprinting ~= lastSprinting then
 		lastSprinting = sprinting
 		camera = workspace.CurrentCamera
-		TweenService:Create(camera, TweenInfo.new(0.25), { FieldOfView = if sprinting then 80 else 70 }):Play()
+		local widen = sprinting and player:GetAttribute("SettingSprintFov") ~= false
+		TweenService:Create(camera, TweenInfo.new(0.25), { FieldOfView = if widen then 80 else 70 }):Play()
 		sprintAction.Button.BackgroundTransparency = if sprinting then 0.4 else 0
 	end
 
@@ -949,6 +950,9 @@ local function showMessages()
 end
 
 notifyRemote.OnClientEvent:Connect(function(text, color)
+	if player:GetAttribute("SettingMessages") == false then
+		return -- el jugador desactivó los mensajes en Ajustes
+	end
 	table.insert(messageQueue, { Text = text, Color = color })
 	if not showingMessages then
 		task.spawn(showMessages)

@@ -556,10 +556,57 @@ local function onCharacterAdded(player, character)
 	end
 end
 
+--------------------------------------------------------------------------------
+-- Usar objetos del inventario
+--------------------------------------------------------------------------------
+
+local lastPotion = {} -- [Player] = tiempo
+
+function Combat.UseItem(player, itemId)
+	local slot = PlayerData.Get(player)
+	local item = type(itemId) == "string" and Config.Items[itemId]
+	local character, humanoid = getAliveCharacter(player)
+	if not slot or not item or not character then
+		return { Ok = false, Message = "No puedes usar eso ahora" }
+	end
+
+	local isPotion = item.Effect ~= "Spin"
+	local now = os.clock()
+	if isPotion and now - (lastPotion[player] or 0) < Config.PotionCooldown then
+		return { Ok = false, Message = "Espera un poco antes de otra poción" }
+	end
+	if not PlayerData.TakeItem(player, itemId) then
+		return { Ok = false, Message = "No te quedan" }
+	end
+
+	local state = getState(player)
+	if item.Effect == "Heal" then
+		humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + humanoid.MaxHealth * item.Amount)
+	elseif item.Effect == "Mana" then
+		local maxMana = Config.MaxMana(slot.Level, slot.Race)
+		state.Mana = math.min(maxMana, state.Mana + maxMana * item.Amount)
+	elseif item.Effect == "Stamina" then
+		local maxStamina = Config.Races[slot.Race].Stamina.Max
+		state.Stamina = math.min(maxStamina, state.Stamina + maxStamina * item.Amount)
+		state.Exhausted = false
+	elseif item.Effect == "Spin" then
+		PlayerData.AddSpins(player, item.Amount)
+	end
+
+	if isPotion then
+		lastPotion[player] = now
+	end
+	notify(player, "Usaste " .. item.Name, item.Color)
+	return { Ok = true }
+end
+
 function Combat.Start()
 	Remotes.Attack.OnServerEvent:Connect(onAttack)
 	Remotes.Cast.OnServerEvent:Connect(onCast)
 	Remotes.Absorb.OnServerEvent:Connect(onAbsorb)
+	Remotes.UseItem.OnServerInvoke = function(player, itemId)
+		return Combat.UseItem(player, itemId)
+	end
 	Remotes.Sprint.OnServerEvent:Connect(function(player, wantsToSprint)
 		getState(player).WantSprint = wantsToSprint == true
 	end)
@@ -575,6 +622,7 @@ function Combat.Start()
 	end
 	Players.PlayerRemoving:Connect(function(player)
 		states[player] = nil
+		lastPotion[player] = nil
 	end)
 
 	local last = os.clock()

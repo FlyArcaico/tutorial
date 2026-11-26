@@ -20,11 +20,21 @@ local function newSlot()
 		Spins = Config.StartingSpins,
 		Skills = {}, -- [skillId] = true (solo Slime)
 		Absorbed = {}, -- [monsterId] = cantidad (solo Slime)
+		Inventory = {}, -- [itemId] = cantidad
 	}
+end
+
+local function defaultSettings()
+	local settings = {}
+	for _, setting in Config.Settings do
+		settings[setting.Id] = true
+	end
+	return settings
 end
 
 local TEMPLATE = {
 	Slots = { newSlot(), newSlot(), newSlot() },
+	Settings = defaultSettings(),
 }
 
 local store = ProfileService.GetProfileStore("SlimeRebirth_v2", TEMPLATE)
@@ -133,6 +143,17 @@ local function updateAttributes(player, slot)
 	player:SetAttribute("Race", slot.Race)
 	player:SetAttribute("Form", Config.GetBody(slot.Race, slot.Level).Name)
 	player:SetAttribute("Skills", table.concat(skills, ","))
+
+	-- Inventario como texto: "HealthPotion=2,ManaPotion=1" (los atributos no admiten tablas)
+	local items = {}
+	for _, itemId in Config.ItemOrder do
+		local count = slot.Inventory[itemId] or 0
+		if count > 0 then
+			table.insert(items, itemId .. "=" .. count)
+		end
+	end
+	player:SetAttribute("Inventory", table.concat(items, ","))
+	player:SetAttribute("Spins", slot.Spins)
 
 	-- Misión activa (el HUD muestra el progreso arriba a la izquierda)
 	local quest = slot.Quest and Config.GetQuest(slot.Quest.Id)
@@ -788,6 +809,73 @@ function PlayerData.QuestAction(player, action, questId)
 end
 
 --------------------------------------------------------------------------------
+-- Tienda, inventario y ajustes
+--------------------------------------------------------------------------------
+
+function PlayerData.Buy(player, itemId, amount)
+	local slot = PlayerData.Get(player)
+	local item = type(itemId) == "string" and Config.Items[itemId]
+	if not slot or not item then
+		return fail("Objeto no válido")
+	end
+	amount = if amount == 5 then 5 else 1
+	local owned = slot.Inventory[itemId] or 0
+	if owned + amount > Config.MaxItemStack then
+		return fail("No puedes llevar más de " .. Config.MaxItemStack)
+	end
+	local cost = item.Price * amount
+	if slot.Gold < cost then
+		return fail("No tienes suficiente oro (" .. cost .. ")")
+	end
+
+	slot.Gold -= cost
+	slot.Inventory[itemId] = owned + amount
+	updateAttributes(player, slot)
+	notify(
+		player,
+		"Compraste " .. amount .. "× " .. item.Name .. "  -" .. cost .. " oro",
+		Color3.fromRGB(255, 215, 90)
+	)
+	return { Ok = true }
+end
+
+-- Quita un objeto del inventario. Devuelve true si lo tenía.
+function PlayerData.TakeItem(player, itemId)
+	local slot = PlayerData.Get(player)
+	if not slot or (slot.Inventory[itemId] or 0) <= 0 then
+		return false
+	end
+	slot.Inventory[itemId] -= 1
+	if slot.Inventory[itemId] <= 0 then
+		slot.Inventory[itemId] = nil
+	end
+	updateAttributes(player, slot)
+	return true
+end
+
+function PlayerData.AddSpins(player, amount)
+	local slot = PlayerData.Get(player)
+	if slot then
+		slot.Spins += amount
+		updateAttributes(player, slot)
+	end
+end
+
+function PlayerData.SaveSetting(player, settingId, enabled)
+	local session = sessions[player]
+	if not session or type(settingId) ~= "string" or type(enabled) ~= "boolean" then
+		return
+	end
+	for _, setting in Config.Settings do
+		if setting.Id == settingId then
+			session.Profile.Data.Settings[settingId] = enabled
+			player:SetAttribute("Setting" .. settingId, enabled)
+			return
+		end
+	end
+end
+
+--------------------------------------------------------------------------------
 -- Modo prueba: subir o bajar niveles
 --------------------------------------------------------------------------------
 
@@ -865,6 +953,9 @@ local function onPlayerAdded(player)
 	end)
 
 	player:SetAttribute("IsTester", isTester(player))
+	for _, setting in Config.Settings do
+		player:SetAttribute("Setting" .. setting.Id, profile.Data.Settings[setting.Id] ~= false)
+	end
 	sessions[player] = { Profile = profile, SlotIndex = nil, Playing = false }
 end
 

@@ -46,6 +46,15 @@ Remotes.Quest.OnServerInvoke = function(player, action, questId)
 	return PlayerData.QuestAction(player, action, questId)
 end
 
+-- Tienda y ajustes (usar objetos está en Combat, porque toca vida/maná/stamina)
+Remotes.Buy.OnServerInvoke = function(player, itemId, amount)
+	return PlayerData.Buy(player, itemId, amount)
+end
+
+Remotes.SaveSetting.OnServerEvent:Connect(function(player, settingId, enabled)
+	PlayerData.SaveSetting(player, settingId, enabled)
+end)
+
 -- Modo prueba: +5 / -5 niveles
 Remotes.DevLevel.OnServerEvent:Connect(function(player, delta)
 	PlayerData.DevChangeLevel(player, delta)

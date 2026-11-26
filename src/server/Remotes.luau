@@ -28,6 +28,9 @@ local Remotes = {
 	Sprint = make("RemoteEvent", "Sprint"), -- cliente -> servidor: empezar/dejar de correr
 	Quest = make("RemoteFunction", "Quest"), -- hablar con el NPC: ver, aceptar, recoger, abandonar
 	DevLevel = make("RemoteEvent", "DevLevel"), -- modo prueba: subir/bajar 5 niveles
+	Buy = make("RemoteFunction", "Buy"), -- comprar en la tienda
+	UseItem = make("RemoteFunction", "UseItem"), -- usar un objeto del inventario
+	SaveSetting = make("RemoteEvent", "SaveSetting"), -- guardar un ajuste
 }
 
 folder.Parent = ReplicatedStorage
