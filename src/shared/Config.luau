@@ -703,16 +703,49 @@ Config.Monsters = {
 		EyeColor = Color3.fromRGB(30, 30, 25),
 		Size = Vector3.new(1, 1.2, 0.6), -- HumanoidRootPart (invisible)
 		HipHeight = 0.81,
-		AggroRange = 28,
+		AggroRange = 28, -- radio de detección
+		LeashRange = 40, -- si se aleja más de esto de su sitio, deja de perseguir y vuelve
 		WalkSpeed = 7, -- paseando
 		ChaseSpeed = 11, -- persiguiendo (más lento que un jugador andando: se le puede escapar)
+		ReturnSpeed = 15, -- volviendo a su sitio
 		AttackReach = 3.6, -- distancia para golpear (desde su centro)
 		AttackCooldown = 1.7, -- torpe: tarda en volver a atacar
 		AttackWindup = 0.45, -- el golpe llega al bajar el garrote (no al empezar la animación)
-		WanderRadius = 18, -- pasea cerca de donde apareció
+		WanderRadius = 12, -- pasea cerca de donde apareció
 		CorpseTime = 2.6, -- segundos que se queda el cuerpo para la animación de muerte
+		RespawnTime = 12, -- segundos desde que muere hasta que vuelve a aparecer en su sitio
 	},
 }
+
+-- Valores por defecto del comportamiento de los monstruos (cada monstruo puede cambiarlos
+-- en su entrada de Config.Monsters). Así un monstruo nuevo solo necesita sus datos.
+Config.MonsterDefaults = {
+	AggroRange = 30, -- radio de detección
+	LeashRange = 45, -- distancia máxima a su sitio antes de rendirse y volver
+	LoseInterestRange = 1.6, -- deja de perseguir si te alejas AggroRange × esto
+	WalkSpeed = 12,
+	ChaseSpeed = 12,
+	ReturnSpeed = 16,
+	AttackCooldown = 1.2,
+	AttackWindup = 0, -- 0 = el daño llega al empezar el ataque
+	WanderRadius = 15,
+	CorpseTime = 1,
+	RespawnTime = 10,
+}
+
+-- Un valor del monstruo, o el de por defecto si no lo tiene
+function Config.MonsterSetting(def, key)
+	local value = def[key]
+	if value == nil then
+		return Config.MonsterDefaults[key]
+	end
+	return value
+end
+
+-- Distancia a la que un monstruo puede golpear (desde su centro)
+function Config.MonsterReach(def, size)
+	return def.AttackReach or (math.max(size.X, size.Z) / 2 + 3.5 + def.HipHeight)
+end
 
 -- Zonas donde aparecen monstruos. El spawn está en (0, 0, 0); las zonas van al norte (-Z).
 -- Spawns: tabla de aparición { Monster, Weight (probabilidad relativa), Levels = { min, max } }.

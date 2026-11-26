@@ -179,6 +179,41 @@ function Tests.Run(modules)
 		Config.Monsters.Bat ~= nil and Config.Monsters.Wolf ~= nil,
 		"Los datos de murciélagos y lobos deben conservarse"
 	)
+	-- Física: jugadores y monstruos no chocan entre sí, pero sí con el mundo
+	check(modules.Physics.IsConfigured(), "Los grupos de colisión no están bien configurados")
+
+	-- Comportamiento de los monstruos que aparecen: valores coherentes
+	for monsterId in Config.Monsters do
+		if Config.IsMonsterActive(monsterId) then
+			local def = Config.Monsters[monsterId]
+			local function get(key)
+				return Config.MonsterSetting(def, key)
+			end
+			local reach = Config.MonsterReach(def, def.Size)
+			check(reach > 0 and reach < get("AggroRange"), monsterId .. ": alcance de golpe raro")
+			check(
+				get("AttackCooldown") > get("AttackWindup") + 0.15,
+				monsterId .. ": ataca más rápido de lo que golpea"
+			)
+			check(get("LeashRange") > get("WanderRadius") + 5, monsterId .. ": LeashRange demasiado pequeño")
+			check(get("RespawnTime") >= get("CorpseTime"), monsterId .. ": reaparece antes de desaparecer su cuerpo")
+			check(get("ChaseSpeed") > 0 and get("ReturnSpeed") > 0, monsterId .. ": velocidades inválidas")
+		end
+	end
+	for _, zone in Config.Zones do
+		local safe = Config.SafeZone
+		local gap = (Vector3.new(zone.Center.X, 0, zone.Center.Z) - Vector3.new(safe.Center.X, 0, safe.Center.Z)).Magnitude
+		check(gap + zone.Radius > safe.Radius + 20, zone.Name .. ": no hay sitio para aparecer fuera de la zona segura")
+	end
+
+	-- Recompensa: para el que más daño hizo (y sigue en el juego); empate, el último golpe
+	local a, b, gone = { Parent = true }, { Parent = true }, { Parent = nil }
+	local choose = modules.Monsters.ChooseRewardPlayer
+	check(choose({ [a] = 20, [b] = 10 }, b) == a, "Recompensa: debería ser para quien más daño hizo")
+	check(choose({ [a] = 10, [b] = 10 }, b) == b, "Recompensa: en empate, para el último golpe")
+	check(choose({ [gone] = 50, [b] = 5 }, gone) == b, "Recompensa: no para alguien que se fue")
+	check(choose({}, nil) == nil, "Recompensa: sin daño de jugadores no hay recompensa")
+
 	local availableQuests = 0
 	for _, quest in Config.Quests do
 		if Config.IsQuestAvailable(quest) then
@@ -259,6 +294,113 @@ function Tests.Run(modules)
 		print(string.format("[Autocomprobación] ✓ Servidor: %d/%d comprobaciones correctas", passed, total))
 	else
 		warn(string.format("[Autocomprobación] Servidor: %d de %d comprobaciones fallaron", failed, total))
+	end
+end
+
+-- Prueba en vivo (unos segundos después de empezar): los monstruos que han aparecido
+-- están bien colocados, y uno muere y reaparece correctamente.
+function Tests.RunLive(modules)
+	local passed, failed = 0, 0
+	local function check(condition, message)
+		if condition then
+			passed += 1
+		else
+			failed += 1
+			warn("[Autocomprobación en vivo] ✗ " .. message)
+		end
+	end
+	local Monsters = modules.Monsters
+	local safe = Config.SafeZone
+
+	local slots = Monsters.GetSlots()
+	local living = 0
+	for _, slot in slots do
+		if slot.Model then
+			living += 1
+		end
+	end
+	check(living > 0, "No ha aparecido ningún monstruo")
+
+	-- Cada monstruo vivo: en su grupo de colisión, controlado por el servidor, en el suelo,
+	-- fuera de la zona segura y con un solo modelo por sitio
+	local seen = {}
+	for model, state in Monsters.GetActive() do
+		local root = state.Root
+		check(not seen[state.Slot], model.Name .. ": dos monstruos en el mismo sitio")
+		seen[state.Slot] = true
+		check(model.Parent ~= nil, model.Name .. ": está activo pero no en el mundo")
+		for _, part in model:GetDescendants() do
+			if part:IsA("BasePart") and part.CollisionGroup ~= modules.Physics.MONSTERS then
+				check(false, model.Name .. ": la pieza " .. part.Name .. " no está en el grupo Monsters")
+				break
+			end
+		end
+		check(root:GetNetworkOwner() == nil, model.Name .. ": su física no la controla el servidor")
+		check(root.Position.Y > -5 and root.Position.Y < 12, model.Name .. ": no está en el suelo")
+		local gap = Vector3.new(root.Position.X - safe.Center.X, 0, root.Position.Z - safe.Center.Z).Magnitude
+		check(gap > safe.Radius, model.Name .. ": está dentro de la zona segura")
+		check(state.Humanoid:GetStateEnabled(Enum.HumanoidStateType.Seated) == false, model.Name .. ": puede sentarse")
+	end
+	for _, player in game:GetService("Players"):GetPlayers() do
+		local rootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if rootPart then
+			check(rootPart.CollisionGroup == modules.Physics.PLAYERS, player.Name .. ": no está en el grupo Players")
+		end
+	end
+
+	-- Muerte y reaparición: matar a uno (sin jugador, así no da recompensa a nadie)
+	local victim, victimSlot
+	for _, state in Monsters.GetActive() do
+		if state.Mode == "Idle" then
+			victim, victimSlot = state, state.Slot
+			break
+		end
+	end
+	if not victim then
+		print("[Autocomprobación en vivo] · No había ningún monstruo tranquilo para probar la reaparición")
+	else
+		local def = victim.Def
+		local diedCount = 0
+		victim.Humanoid.Died:Connect(function()
+			diedCount += 1
+		end)
+		local oldModel = victim.Model
+		Monsters.Damage(victim, nil, victim.Humanoid.MaxHealth * 10)
+		Monsters.Damage(victim, nil, 50) -- un golpe de más no debe hacer nada
+		task.wait(0.2)
+		check(victim.Dead and diedCount == 1, "Muerte: debería procesarse exactamente una vez")
+		check(victimSlot.Model == nil, "Muerte: el sitio debería quedar libre")
+		check(oldModel:GetAttribute("AIState") == "Dead", "Muerte: el monstruo sigue activo")
+		check(oldModel:FindFirstChild("HealthBar", true) == nil, "Muerte: la barra de vida no se quitó")
+		check(#oldModel:GetDescendants() > 5, "Muerte: el cuerpo se rompió (explosión de Roblox)")
+
+		task.wait(Config.MonsterSetting(def, "CorpseTime") + 0.3)
+		check(oldModel.Parent == nil, "Muerte: el cuerpo no se ha borrado")
+
+		local deadline = os.clock() + Config.MonsterSetting(def, "RespawnTime") + 6
+		while os.clock() < deadline and not victimSlot.Model do
+			task.wait(0.5)
+		end
+		check(victimSlot.Model ~= nil and victimSlot.Model ~= oldModel, "Reaparecer: no volvió a aparecer")
+		if victimSlot.Model then
+			local state = Monsters.GetActive()[victimSlot.Model]
+			check(state ~= nil and state.Humanoid.Health == state.Humanoid.MaxHealth, "Reaparecer: sin la vida llena")
+			check(state ~= nil and state.Target == nil and state.Mode == "Idle", "Reaparecer: no empezó tranquilo")
+			check(victimSlot.Model:FindFirstChild("HealthBar", true) ~= nil, "Reaparecer: sin barra de vida")
+			local home = victimSlot.Home
+			local position = victimSlot.Model:GetPivot().Position
+			check(
+				Vector3.new(position.X - home.X, 0, position.Z - home.Z).Magnitude < 4,
+				"Reaparecer: no salió en su sitio"
+			)
+		end
+	end
+
+	local total = passed + failed
+	if failed == 0 then
+		print(string.format("[Autocomprobación en vivo] ✓ Monstruos: %d/%d comprobaciones correctas", passed, total))
+	else
+		warn(string.format("[Autocomprobación en vivo] Monstruos: %d de %d comprobaciones fallaron", failed, total))
 	end
 end
 

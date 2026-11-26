@@ -2,6 +2,7 @@
 -- encima y números de daño. Persiguen y atacan a los jugadores. Al morir sueltan una
 -- esencia (si los derrota un Slime). También gestiona efectos: quemadura, ralentización,
 -- raíces y empujones.
+local PathfindingService = game:GetService("PathfindingService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -9,6 +10,7 @@ local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local MeshRig = require(script.Parent.MeshRig)
+local Physics = require(script.Parent.Physics)
 
 local Monsters = {}
 
@@ -18,7 +20,6 @@ local essenceFolder
 local effectsFolder
 local active = {} -- [Model] = state
 local essences = {} -- [Part] = { Expires = number, Bob = Tween }
-local zoneCounts = {} -- [zone] = monstruos vivos
 local killHandler = nil -- function(player, monsterId, level): boolean (true = soltar esencia)
 
 local WHITE = Color3.new(1, 1, 1)
@@ -621,39 +622,78 @@ local function pickSpawn(zone)
 	return zone.Spawns[#zone.Spawns]
 end
 
--- Busca un sitio libre dentro de la zona: fuera de la zona segura y sin árboles, rocas,
--- casas u otros monstruos encima. Si no encuentra ninguno, devuelve nil.
+local function flat(v)
+	return Vector3.new(v.X, 0, v.Z)
+end
+
+-- ¿Hay sitio? Sin árboles, rocas, casas, jugadores ni otros monstruos encima
 local GROUND_NAMES = { Ground = true, Path = true, StoneGround = true }
-local function findSpawnPoint(zone)
+local function isFree(point)
 	local params = OverlapParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { essenceFolder, effectsFolder }
-	for _ = 1, 10 do
+	for _, part in Workspace:GetPartBoundsInBox(CFrame.new(point + Vector3.new(0, 3, 0)), Vector3.new(4, 5, 4), params) do
+		if not GROUND_NAMES[part.Name] then
+			return false
+		end
+	end
+	return true
+end
+
+local function playerNear(point, radius)
+	for _, player in Players:GetPlayers() do
+		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+		if root and (root.Position - point).Magnitude < radius then
+			return true
+		end
+	end
+	return false
+end
+
+-- Un sitio de aparición nuevo dentro de la zona: libre, bien lejos de la zona segura y
+-- separado de los demás sitios (para que no salgan todos amontonados)
+local function findSpawnPoint(zone, taken)
+	local safe = Config.SafeZone
+	for _ = 1, 40 do
 		local point = randomPointInZone(zone)
-		if not Config.IsInSafeZone(point) then
-			local blocked = false
-			for _, part in
-				Workspace:GetPartBoundsInBox(CFrame.new(point + Vector3.new(0, 3, 0)), Vector3.new(4, 5, 4), params)
-			do
-				if not GROUND_NAMES[part.Name] then
-					blocked = true
-					break
-				end
+		local separated = true
+		for _, other in taken do
+			if (other - point).Magnitude < 10 then
+				separated = false
+				break
 			end
-			if not blocked then
-				return point
-			end
+		end
+		if separated and flat(point - safe.Center).Magnitude > safe.Radius + 12 and isFree(point) then
+			return point
 		end
 	end
 	return nil
 end
 
-local function spawnMonster(monsterId, zone, levels)
-	local def = Config.Monsters[monsterId]
-	local position = findSpawnPoint(zone)
-	if not position then
-		return -- no hay sitio libre ahora; se intentará en el siguiente ciclo
+-- Puntos de aparición: cada zona tiene MaxMonsters sitios fijos. Cada sitio tiene como mucho
+-- un monstruo vivo y, cuando muere, vuelve a aparecer en ese mismo sitio tras su
+-- RespawnTime. Así no hay duplicados ni monstruos que aparecen encima de nadie.
+local slots = {} -- { Zone, Entry, Home, Model, RespawnAt }
+local homesTaken = {}
+
+-- Quién se lleva la recompensa: el jugador que más daño le hizo y sigue en el juego (así
+-- nadie "roba" un monstruo dando solo el último golpe). En caso de empate, el último que
+-- golpeó. Se entrega una sola vez porque la muerte solo se procesa una vez.
+function Monsters.ChooseRewardPlayer(damageBy, lastHitBy)
+	local best, bestDamage = nil, 0
+	for player, damage in damageBy do
+		if player.Parent and (damage > bestDamage or (damage == bestDamage and player == lastHitBy)) then
+			best, bestDamage = player, damage
+		end
 	end
+	return best
+end
+
+local function spawnMonster(slot)
+	local monsterId = slot.Entry.Monster
+	local levels = slot.Entry.Levels
+	local def = Config.Monsters[monsterId]
+	local position = slot.Home
 	local level = rng:NextInteger(levels[1], levels[2])
 	local stats = Config.MonsterStats(monsterId, level)
 	local s = stats.Scale
@@ -674,7 +714,7 @@ local function spawnMonster(monsterId, zone, levels)
 	root.Material = Enum.Material.SmoothPlastic
 	root.TopSurface = Enum.SurfaceType.Smooth
 	root.BottomSurface = Enum.SurfaceType.Smooth
-	root.CFrame = CFrame.new(position + Vector3.new(0, hipHeight + size.Y / 2 + 0.5, 0))
+	root.CFrame = CFrame.new(position + Vector3.new(0, hipHeight + size.Y / 2 + 0.2, 0))
 		* CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0)
 	root.Parent = model
 	model.PrimaryPart = root
@@ -741,12 +781,21 @@ local function spawnMonster(monsterId, zone, levels)
 	humanoid.HipHeight = hipHeight
 	humanoid.MaxHealth = stats.Health
 	humanoid.Health = stats.Health
-	humanoid.WalkSpeed = def.WalkSpeed or Config.BaseSpeed
-	humanoid.BreakJointsOnDeath = false
+	humanoid.WalkSpeed = Config.MonsterSetting(def, "WalkSpeed")
+	humanoid.BreakJointsOnDeath = false -- sin la "explosión" de Roblox al morir
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
-	humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-	humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+	-- Estados que no tienen sentido en un monstruo (y que lo podían tumbar o sentar)
+	for _, humanoidState in
+		{
+			Enum.HumanoidStateType.FallingDown,
+			Enum.HumanoidStateType.Ragdoll,
+			Enum.HumanoidStateType.Seated,
+			Enum.HumanoidStateType.Climbing,
+		}
+	do
+		humanoid:SetStateEnabled(humanoidState, false)
+	end
 	humanoid.Parent = model
 
 	local state = {
@@ -755,16 +804,32 @@ local function spawnMonster(monsterId, zone, levels)
 		Level = level,
 		Stats = stats,
 		Size = size,
-		Zone = zone,
+		Zone = slot.Zone,
+		Slot = slot,
 		Model = model,
 		Humanoid = humanoid,
 		Root = root,
 		TopOffset = topOffset,
-		Home = position, -- pasea cerca de donde apareció
+		Reach = Config.MonsterReach(def, size),
+		Home = position, -- su sitio: pasea cerca y vuelve aquí
+		Mode = "Idle", -- Idle (en su sitio) / Chase (persigue) / Return (vuelve a su sitio)
+		Target = nil, -- personaje al que persigue
+		DamageBy = {}, -- [Player] = daño hecho (para la recompensa)
+		Dead = false,
 		LastAttack = 0,
 		AttackingUntil = 0,
-		NextWander = 0,
-		LastHitBy = nil, -- el último jugador que le pegó se lleva la muerte
+		NextWander = os.clock() + rng:NextNumber(1, 4),
+		WanderGoal = nil,
+		SurroundAngle = rng:NextNumber(-55, 55), -- varios monstruos rodean en vez de amontonarse
+		Path = nil,
+		PathIndex = 0,
+		PathGoal = nil,
+		PathRefresh = 0,
+		PathBusy = false,
+		StuckPathUntil = 0,
+		LastPos = root.Position,
+		NextStuckCheck = 0,
+		LastHitBy = nil,
 		SlowUntil = 0,
 		SlowMult = 1,
 		RootedUntil = 0,
@@ -773,20 +838,29 @@ local function spawnMonster(monsterId, zone, levels)
 		BurnBy = nil,
 		NextBurnTick = 0,
 	}
+	model:SetAttribute("AIState", "Idle")
 	createHealthBar(state, def.DisplayName, level)
 
+	-- No choca con jugadores ni con otros monstruos (sí con el mundo): ver Physics.luau
+	Physics.SetGroup(model, Physics.MONSTERS)
 	model.Parent = monsterFolder
 	root:SetNetworkOwner(nil) -- el servidor mueve a los monstruos, así se ven bien para todos
 
 	active[model] = state
-	zoneCounts[zone] = (zoneCounts[zone] or 0) + 1
+	slot.Model = model
 
 	humanoid.Died:Connect(function()
+		if state.Dead then
+			return -- la muerte solo se procesa una vez
+		end
+		state.Dead = true
 		active[model] = nil
-		zoneCounts[zone] -= 1
+		model:SetAttribute("AIState", "Dead")
+		slot.Model = nil
+		slot.RespawnAt = os.clock() + Config.MonsterSetting(def, "RespawnTime")
 
-		local killer = state.LastHitBy
-		if killer and killer.Parent and killHandler and killHandler(killer, monsterId, level) then
+		local killer = Monsters.ChooseRewardPlayer(state.DamageBy, state.LastHitBy)
+		if killer and killHandler and killHandler(killer, monsterId, level) then
 			createEssence(monsterId, level, root.Position)
 		end
 
@@ -794,13 +868,15 @@ local function spawnMonster(monsterId, zone, levels)
 		if bar then
 			bar:Destroy()
 		end
-		-- Los monstruos con animación de muerte (Goblin) se quedan quietos mientras caen
-		local corpseTime = def.CorpseTime or 1
-		if def.CorpseTime then
-			root.AssemblyLinearVelocity = Vector3.zero
-			root.Anchored = true
+		local fire = root:FindFirstChild("Burning")
+		if fire then
+			fire:Destroy()
 		end
-		task.delay(corpseTime - 0.9, function()
+		-- Se queda quieto mientras cae (el cliente reproduce la animación de muerte)
+		local corpseTime = Config.MonsterSetting(def, "CorpseTime")
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.Anchored = true
+		task.delay(math.max(0, corpseTime - 0.9), function()
 			for _, descendant in model:GetDescendants() do
 				if descendant:IsA("BasePart") and descendant.Transparency < 1 then
 					TweenService:Create(descendant, TweenInfo.new(0.8), { Transparency = 1 }):Play()
@@ -813,34 +889,110 @@ local function spawnMonster(monsterId, zone, levels)
 	end)
 end
 
+-- Intenta (re)aparecer el monstruo de un sitio
+local function trySpawn(slot, now)
+	if not slot.Home then
+		slot.Home = findSpawnPoint(slot.Zone, homesTaken)
+		if not slot.Home then
+			slot.RespawnAt = now + 3
+			return
+		end
+		table.insert(homesTaken, slot.Home)
+	end
+	-- No aparecer encima de un jugador, de otro monstruo o de su propio cuerpo
+	if playerNear(slot.Home, 12) or not isFree(slot.Home) then
+		slot.RespawnAt = now + 3
+		return
+	end
+	slot.Entry = pickSpawn(slot.Zone)
+	spawnMonster(slot)
+end
+
 --------------------------------------------------------------------------------
 -- Inteligencia
+--
+--   Idle:   en su sitio. A ratos pasea un poco cerca y a ratos se queda quieto.
+--   Chase:  persigue al jugador más cercano dentro de su radio de detección (o al que le
+--           pegó). Se para a distancia de golpe, lo rodea si hay más monstruos y esquiva
+--           obstáculos con PathfindingService cuando no hay línea recta.
+--   Return: si el jugador se escapa, entra en la zona segura o el monstruo se aleja
+--           demasiado de su sitio, vuelve corriendo, no recibe daño ("Esquiva") y al llegar
+--           recupera toda la vida.
 --------------------------------------------------------------------------------
 
+local function setMode(state, mode)
+	if state.Mode ~= mode then
+		state.Mode = mode
+		state.Path = nil
+		state.Model:SetAttribute("AIState", mode)
+	end
+end
+
+local function aliveRoot(character)
+	local humanoid = character and character.Parent and character:FindFirstChildOfClass("Humanoid")
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if humanoid and root and humanoid.Health > 0 then
+		return root
+	end
+	return nil
+end
+
+-- ¿Puede (seguir) persiguiendo a este personaje?
+local function canChase(state, character)
+	local root = aliveRoot(character)
+	if not root or Config.IsInSafeZone(root.Position) then
+		return false -- los jugadores en la zona segura están protegidos
+	end
+	local def = state.Def
+	local aggro = Config.MonsterSetting(def, "AggroRange")
+	-- El jugador está demasiado lejos del sitio del monstruo
+	if flat(root.Position - state.Home).Magnitude > Config.MonsterSetting(def, "LeashRange") + aggro * 0.5 then
+		return false
+	end
+	return (root.Position - state.Root.Position).Magnitude <= aggro * Config.MonsterSetting(def, "LoseInterestRange")
+end
+
 local function findTarget(state)
-	local bestCharacter, bestDistance = nil, state.Def.AggroRange
+	local best, bestDistance = nil, Config.MonsterSetting(state.Def, "AggroRange")
 	for _, player in Players:GetPlayers() do
-		local character = player.Character
-		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-		local root = character and character:FindFirstChild("HumanoidRootPart")
-		-- Los jugadores dentro de la zona segura no pueden ser atacados
-		if humanoid and root and humanoid.Health > 0 and not Config.IsInSafeZone(root.Position) then
+		local root = aliveRoot(player.Character)
+		if root then
 			local distance = (root.Position - state.Root.Position).Magnitude
-			if distance < bestDistance then
-				bestCharacter, bestDistance = character, distance
+			if distance < bestDistance and canChase(state, player.Character) then
+				best, bestDistance = player.Character, distance
 			end
 		end
 	end
-	return bestCharacter, bestDistance
+	return best
 end
 
 function Monsters.Damage(state, player, amount, color)
-	if state.Humanoid.Health <= 0 then
+	local humanoid = state.Humanoid
+	if state.Dead or humanoid.Health <= 0 then
+		return
+	end
+	-- Desde la zona segura no se puede pelear (si no, sería pegar sin riesgo)
+	local character = player and player.Character
+	local attackerRoot = character and character:FindFirstChild("HumanoidRootPart")
+	if attackerRoot and Config.IsInSafeZone(attackerRoot.Position) then
+		showDamageNumber(state, "Zona segura", Color3.fromRGB(150, 200, 255))
+		return
+	end
+	-- Volviendo a su sitio: no recibe daño (evita "arrastrarlo" lejos para pegarle gratis)
+	if state.Mode == "Return" then
+		showDamageNumber(state, "Esquiva", Color3.fromRGB(190, 190, 190))
 		return
 	end
 	amount = math.max(1, math.floor(amount + 0.5))
-	state.LastHitBy = player
-	state.Humanoid:TakeDamage(amount)
+	if player then
+		state.LastHitBy = player
+		state.DamageBy[player] = (state.DamageBy[player] or 0) + math.min(amount, humanoid.Health)
+		-- Si le pegan, va a por quien le pegó aunque estuviera fuera de su radio de detección
+		if character and (state.Target == nil or not canChase(state, state.Target)) and canChase(state, character) then
+			state.Target = character
+		end
+	end
+	humanoid:TakeDamage(amount)
 	showDamageNumber(state, amount, color or WHITE)
 end
 
@@ -858,22 +1010,226 @@ local function setBurning(state, burning)
 	end
 end
 
--- Punto para pasear: cerca de su sitio (si lo tiene) y siempre dentro de la zona
+-- Punto para pasear: cerca de su sitio y siempre dentro de la zona
 local function wanderPoint(state)
-	local radius = state.Def.WanderRadius
-	if not radius or not state.Home then
-		return randomPointInZone(state.Zone)
-	end
+	local radius = Config.MonsterSetting(state.Def, "WanderRadius")
 	local angle = rng:NextNumber(0, math.pi * 2)
 	local point = state.Home + Vector3.new(math.cos(angle), 0, math.sin(angle)) * rng:NextNumber(3, radius)
 	local zone = state.Zone
-	if (point - zone.Center).Magnitude > zone.Radius then
-		point = zone.Center + (point - zone.Center).Unit * zone.Radius * 0.9
+	if flat(point - zone.Center).Magnitude > zone.Radius then
+		point = zone.Center + flat(point - zone.Center).Unit * zone.Radius * 0.9
 	end
 	return point
 end
 
-local function updateMonster(state, now)
+-- Lo que bloquea el paso (para decidir si hace falta buscar un camino): todo menos personajes,
+-- monstruos y efectos. Se calcula una vez por ciclo de la IA.
+local function sightParams()
+	local ignore = { monsterFolder, essenceFolder, effectsFolder }
+	for _, player in Players:GetPlayers() do
+		if player.Character then
+			table.insert(ignore, player.Character)
+		end
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = ignore
+	return params
+end
+
+-- Caminar hacia un punto: en línea recta si se puede; si hay algo en medio (o se quedó
+-- atascado), con un camino de PathfindingService que se calcula sin parar la IA.
+local function moveTo(state, destination, params, now)
+	local humanoid = state.Humanoid
+	local origin = state.Root.Position
+	local offset = flat(destination - origin)
+	if offset.Magnitude < 0.5 then
+		return
+	end
+	local blocked = state.StuckPathUntil > now or Workspace:Raycast(origin, offset, params) ~= nil
+	if not blocked then
+		state.Path = nil
+		humanoid:MoveTo(destination)
+		return
+	end
+
+	local needPath = not state.Path or now >= state.PathRefresh or (state.PathGoal - destination).Magnitude > 6
+	if needPath and not state.PathBusy then
+		state.PathBusy = true
+		local radius = math.max(1.5, math.max(state.Size.X, state.Size.Z) / 2 + 0.5)
+		task.spawn(function()
+			local path = PathfindingService:CreatePath({
+				AgentRadius = radius,
+				AgentHeight = state.Size.Y + state.Def.HipHeight + 1,
+				AgentCanJump = false,
+			})
+			local ok = pcall(function()
+				path:ComputeAsync(origin, destination)
+			end)
+			state.PathBusy = false
+			if ok and path.Status == Enum.PathStatus.Success then
+				state.Path = path:GetWaypoints()
+				state.PathIndex = 2
+			else
+				state.Path = nil
+			end
+			state.PathGoal = destination
+			state.PathRefresh = os.clock() + 1.5
+		end)
+	end
+
+	local path = state.Path
+	if path then
+		local waypoint = path[state.PathIndex]
+		while waypoint and flat(waypoint.Position - origin).Magnitude < 2 do
+			state.PathIndex += 1
+			waypoint = path[state.PathIndex]
+		end
+		if waypoint then
+			humanoid:MoveTo(waypoint.Position)
+			return
+		end
+		state.Path = nil
+	end
+	humanoid:MoveTo(destination)
+end
+
+-- Si quería moverse y apenas se ha movido, está atascado: usa caminos un rato
+local function checkStuck(state, now, wantsToMove)
+	if now < state.NextStuckCheck then
+		return
+	end
+	local position = state.Root.Position
+	if wantsToMove and flat(position - state.LastPos).Magnitude < 0.6 then
+		state.StuckPathUntil = now + 3
+		state.PathRefresh = 0
+	end
+	state.LastPos = position
+	state.NextStuckCheck = now + 1.25
+end
+
+-- Separarse de otros monstruos muy cercanos (no chocan entre ellos)
+local function separation(state)
+	local push = Vector3.zero
+	for _, other in active do
+		if other ~= state then
+			local offset = flat(state.Root.Position - other.Root.Position)
+			local distance = offset.Magnitude
+			if distance > 0.01 and distance < 3 then
+				push += offset.Unit * (3 - distance)
+			end
+		end
+	end
+	return push
+end
+
+-- Girar hacia un punto poco a poco (como mucho maxStep radianes por ciclo)
+local function faceTowards(state, point, maxStep)
+	local root = state.Root
+	local wanted = flat(point - root.Position)
+	local current = flat(root.CFrame.LookVector)
+	if wanted.Magnitude < 0.1 or current.Magnitude < 0.1 then
+		return
+	end
+	wanted, current = wanted.Unit, current.Unit
+	local angle = math.acos(math.clamp(current:Dot(wanted), -1, 1))
+	if angle < math.rad(8) then
+		return
+	end
+	local sign = if current:Cross(wanted).Y >= 0 then 1 else -1
+	root.CFrame = CFrame.new(root.Position)
+		* CFrame.Angles(0, sign * math.min(angle, maxStep), 0)
+		* root.CFrame.Rotation
+end
+
+-- Golpe: anima, se queda quieto preparando el golpe y el daño llega en el momento de la
+-- animación en que baja el arma. Solo acierta si el objetivo sigue cerca, delante y fuera
+-- de la zona segura. Un ataque = como mucho un golpe.
+local function startAttack(state, target, now)
+	local def, humanoid = state.Def, state.Humanoid
+	state.LastAttack = now
+	faceTowards(state, target.HumanoidRootPart.Position, math.pi)
+	humanoid:MoveTo(state.Root.Position)
+	-- Los clientes ven este cambio y reproducen la animación de ataque
+	state.Model:SetAttribute("AttackTick", (state.Model:GetAttribute("AttackTick") or 0) + 1)
+
+	local windup = Config.MonsterSetting(def, "AttackWindup")
+	state.AttackingUntil = now + windup + 0.15
+
+	local function resolve()
+		if state.Dead or humanoid.Health <= 0 or state.RootedUntil > os.clock() then
+			return
+		end
+		local targetRoot = aliveRoot(target)
+		if not targetRoot or Config.IsInSafeZone(targetRoot.Position) then
+			return
+		end
+		local offset = targetRoot.Position - state.Root.Position
+		if offset.Magnitude > state.Reach * 1.2 then
+			return -- se apartó a tiempo: falla
+		end
+		local flatOffset = flat(offset)
+		local look = flat(state.Root.CFrame.LookVector)
+		if flatOffset.Magnitude > 2 and look.Magnitude > 0.1 and look.Unit:Dot(flatOffset.Unit) < 0.1 then
+			return -- se puso detrás
+		end
+		if playerDamageHandler then
+			-- Combat aplica resistencias y el bloqueo (Guard)
+			playerDamageHandler(target, state.Stats.Damage, def.Magic == true)
+		else
+			target.Humanoid:TakeDamage(state.Stats.Damage)
+		end
+	end
+	if windup <= 0 then
+		resolve()
+	else
+		task.delay(windup, resolve)
+	end
+end
+
+local function chase(state, target, now, params, slowMult)
+	local def, humanoid, root = state.Def, state.Humanoid, state.Root
+	local targetRoot = target.HumanoidRootPart
+	local offset = flat(targetRoot.Position - root.Position)
+	local distance = offset.Magnitude
+	local stopAt = math.max(1.5, state.Reach * 0.7)
+	humanoid.WalkSpeed = Config.MonsterSetting(def, "ChaseSpeed") * slowMult
+
+	local moving = false
+	if distance > stopAt then
+		-- Se acerca a un punto a su alrededor (no al centro del jugador): no lo empuja, y
+		-- si hay varios monstruos, cada uno llega por un lado
+		local around = CFrame.Angles(0, math.rad(state.SurroundAngle), 0):VectorToWorldSpace(offset.Unit)
+		local destination = targetRoot.Position - around * stopAt * 0.9 + separation(state) * 1.5
+		moveTo(state, Vector3.new(destination.X, root.Position.Y, destination.Z), params, now)
+		moving = true
+	else
+		humanoid:MoveTo(root.Position) -- se para a distancia de golpe y lo mira
+		faceTowards(state, targetRoot.Position, math.rad(50))
+	end
+
+	if distance <= state.Reach and now - state.LastAttack >= Config.MonsterSetting(def, "AttackCooldown") then
+		startAttack(state, target, now)
+		moving = false
+	end
+	return moving
+end
+
+-- Vuelve a su sitio y se recupera del todo
+local function resetMonster(state, now)
+	setMode(state, "Idle")
+	state.Target = nil
+	state.DamageBy = {}
+	state.LastHitBy = nil
+	state.SlowUntil = 0
+	state.BurnUntil = 0
+	state.Humanoid.Health = state.Humanoid.MaxHealth
+	state.NextWander = now + rng:NextNumber(2, 5)
+	state.WanderGoal = nil
+	state.Humanoid:MoveTo(state.Root.Position)
+end
+
+local function updateMonster(state, now, params)
 	local humanoid = state.Humanoid
 
 	-- Quemadura
@@ -886,7 +1242,7 @@ local function updateMonster(state, now)
 		state.BurnDamage = 0
 		setBurning(state, false)
 	end
-	if humanoid.Health <= 0 then
+	if state.Dead or humanoid.Health <= 0 then
 		return
 	end
 
@@ -903,73 +1259,71 @@ local function updateMonster(state, now)
 	end
 	local def = state.Def
 	local slowMult = if state.SlowUntil > now then state.SlowMult else 1
+	local position = state.Root.Position
 
-	-- Zona segura: si un monstruo se acerca demasiado, sale de ella
+	-- Zona segura: si se acerca demasiado, deja lo que esté haciendo y vuelve a su sitio
 	local safe = Config.SafeZone
-	local fromSafe = state.Root.Position - safe.Center
-	fromSafe = Vector3.new(fromSafe.X, 0, fromSafe.Z)
-	if fromSafe.Magnitude < safe.Radius + 4 then
-		local away = if fromSafe.Magnitude > 0.1 then fromSafe.Unit else Vector3.new(0, 0, -1)
-		humanoid:MoveTo(safe.Center + away * (safe.Radius + 15))
+	if state.Mode ~= "Return" and flat(position - safe.Center).Magnitude < safe.Radius + 4 then
+		state.Target = nil
+		setMode(state, "Return")
+	end
+
+	local fromHome = flat(position - state.Home).Magnitude
+	local wantsToMove = false
+
+	if state.Mode == "Return" then
+		humanoid.WalkSpeed = Config.MonsterSetting(def, "ReturnSpeed") * slowMult
+		if fromHome < 3 then
+			resetMonster(state, now)
+		else
+			moveTo(state, state.Home, params, now)
+			wantsToMove = true
+		end
+		checkStuck(state, now, wantsToMove)
 		return
 	end
 
-	local zone = state.Zone
-	local awayFromHome = (state.Root.Position - zone.Center).Magnitude > zone.Radius + 30
-
-	local target, distance = nil, math.huge
-	if not awayFromHome then
-		target, distance = findTarget(state)
+	-- Elegir objetivo: sigue con el que tiene mientras pueda; si no, el más cercano
+	local target = state.Target
+	if target and not canChase(state, target) then
+		target = nil
 	end
+	if not target then
+		target = findTarget(state)
+	end
+	state.Target = target
 
-	-- Velocidad: paseando o persiguiendo (cada monstruo puede tener las suyas)
-	local baseSpeed = if target then def.ChaseSpeed or Config.BaseSpeed else def.WalkSpeed or Config.BaseSpeed
-	humanoid.WalkSpeed = baseSpeed * slowMult
+	if target and fromHome > Config.MonsterSetting(def, "LeashRange") then
+		-- Demasiado lejos de casa: se rinde
+		state.Target = nil
+		setMode(state, "Return")
+		return
+	end
 
 	if target then
-		local targetRoot = target.HumanoidRootPart
-		humanoid:MoveTo(targetRoot.Position)
-
-		local reach = def.AttackReach or (math.max(state.Size.X, state.Size.Z) / 2 + 3.5 + def.HipHeight)
-		if distance <= reach and now - state.LastAttack >= (def.AttackCooldown or 1.2) then
-			state.LastAttack = now
-			-- Los clientes ven este cambio y reproducen la animación de ataque
-			state.Model:SetAttribute("AttackTick", (state.Model:GetAttribute("AttackTick") or 0) + 1)
-
-			local function hit()
-				if playerDamageHandler then
-					-- Combat aplica resistencias y el bloqueo (Guard)
-					playerDamageHandler(target, state.Stats.Damage, def.Magic == true)
-				else
-					target.Humanoid:TakeDamage(state.Stats.Damage)
-				end
-			end
-
-			local windup = def.AttackWindup or 0
-			if windup <= 0 then
-				hit()
+		setMode(state, "Chase")
+		wantsToMove = chase(state, target, now, params, slowMult)
+	elseif state.Mode == "Chase" then
+		-- Perdió al objetivo (se escapó, murió, entró en la zona segura): vuelve a su sitio
+		setMode(state, "Return")
+		return
+	else
+		humanoid.WalkSpeed = Config.MonsterSetting(def, "WalkSpeed") * slowMult
+		if now >= state.NextWander then
+			state.NextWander = now + rng:NextNumber(4, 9)
+			-- A veces pasea un poco y a veces se queda quieto mirando alrededor
+			state.WanderGoal = if rng:NextNumber() < 0.6 then wanderPoint(state) else nil
+		end
+		if state.WanderGoal then
+			if flat(state.WanderGoal - position).Magnitude < 1.5 then
+				state.WanderGoal = nil
 			else
-				-- El golpe llega cuando baja el arma: si el jugador se aleja a tiempo, falla
-				state.AttackingUntil = now + windup + 0.15
-				humanoid:Move(Vector3.zero)
-				task.delay(windup, function()
-					local targetHumanoid = target:FindFirstChildOfClass("Humanoid")
-					local stillAlive = humanoid.Health > 0 and targetHumanoid and targetHumanoid.Health > 0
-					if stillAlive and target.Parent and state.RootedUntil <= os.clock() then
-						local gap = (target.HumanoidRootPart.Position - state.Root.Position).Magnitude
-						if gap <= reach * 1.2 then
-							hit()
-						end
-					end
-				end)
+				moveTo(state, state.WanderGoal, params, now)
+				wantsToMove = true
 			end
 		end
-	elseif awayFromHome then
-		humanoid:MoveTo(zone.Center)
-	elseif now >= state.NextWander then
-		state.NextWander = now + rng:NextNumber(3, 7)
-		humanoid:MoveTo(wanderPoint(state))
 	end
+	checkStuck(state, now, wantsToMove)
 end
 
 --------------------------------------------------------------------------------
@@ -987,9 +1341,9 @@ function Monsters.InFront(cframe, range)
 	for _, state in active do
 		if state.Humanoid.Health > 0 then
 			local offset = state.Root.Position - cframe.Position
-			local flat = Vector3.new(offset.X, 0, offset.Z)
-			if flat.Magnitude <= range + radiusOf(state) then
-				if flat.Magnitude < 4 or cframe.LookVector:Dot(flat.Unit) > 0.2 then
+			local horizontal = flat(offset)
+			if horizontal.Magnitude <= range + radiusOf(state) then
+				if horizontal.Magnitude < 4 or cframe.LookVector:Dot(horizontal.Unit) > 0.2 then
 					table.insert(found, state)
 				end
 			end
@@ -1028,8 +1382,8 @@ function Monsters.InRadius(center, radius)
 	for _, state in active do
 		if state.Humanoid.Health > 0 then
 			local offset = state.Root.Position - center
-			local flat = Vector3.new(offset.X, 0, offset.Z)
-			if flat.Magnitude <= radius + radiusOf(state) then
+			local horizontal = flat(offset)
+			if horizontal.Magnitude <= radius + radiusOf(state) then
 				table.insert(found, state)
 			end
 		end
@@ -1058,19 +1412,30 @@ function Monsters.Burn(state, player, tickDamage, duration)
 	setBurning(state, true)
 end
 
+-- Empujón de algunas habilidades: solo en horizontal (antes también lo lanzaba hacia arriba
+-- con una fuerza enorme y los monstruos ligeros salían volando). La gravedad sigue actuando
+-- y la fuerza va según el peso del monstruo.
 function Monsters.Knockback(state, direction, power)
-	local flat = Vector3.new(direction.X, 0, direction.Z)
-	if flat.Magnitude < 0.01 or state.RootedUntil > os.clock() then
+	local horizontal = flat(direction)
+	local root = state.Root
+	if horizontal.Magnitude < 0.01 or state.RootedUntil > os.clock() or state.Dead or root.Anchored then
+		return
+	end
+	if state.Mode == "Return" then
 		return
 	end
 	local attachment = Instance.new("Attachment")
-	attachment.Parent = state.Root
+	attachment.Parent = root
 	local velocity = Instance.new("LinearVelocity")
 	velocity.Attachment0 = attachment
-	velocity.MaxForce = 1e6
+	velocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Plane
+	velocity.PrimaryTangentAxis = Vector3.xAxis
+	velocity.SecondaryTangentAxis = Vector3.zAxis
+	local push = horizontal.Unit * power
+	velocity.PlaneVelocity = Vector2.new(push.X, push.Z)
+	velocity.MaxForce = root.AssemblyMass * 800
 	velocity.RelativeTo = Enum.ActuatorRelativeTo.World
-	velocity.VectorVelocity = flat.Unit * power + Vector3.new(0, 8, 0)
-	velocity.Parent = state.Root
+	velocity.Parent = root
 	task.delay(0.2, function()
 		velocity:Destroy()
 		attachment:Destroy()
@@ -1139,6 +1504,14 @@ function Monsters.HasBuilder(monsterId)
 	return def.MeshModel == nil or builders[def.FallbackBuilder] ~= nil
 end
 
+-- Para la autocomprobación
+function Monsters.GetSlots()
+	return slots
+end
+function Monsters.GetActive()
+	return active
+end
+
 function Monsters.Start()
 	monsterFolder = Instance.new("Folder")
 	monsterFolder.Name = "Monsters"
@@ -1153,16 +1526,27 @@ function Monsters.Start()
 	effectsFolder.Parent = Workspace
 	Monsters.EffectsFolder = effectsFolder
 
-	-- Rellenar cada zona poco a poco
+	-- Sitios de aparición: MaxMonsters por zona (aparecen poco a poco al empezar)
+	for _, zone in Config.Zones do
+		if #zone.Spawns > 0 then
+			for _ = 1, zone.MaxMonsters do
+				table.insert(slots, { Zone = zone, Entry = nil, Home = nil, Model = nil, RespawnAt = #slots * 0.4 })
+			end
+		end
+	end
+	local startTime = os.clock()
+	for _, slot in slots do
+		slot.RespawnAt += startTime
+	end
 	task.spawn(function()
 		while true do
-			for _, zone in Config.Zones do
-				if (zoneCounts[zone] or 0) < zone.MaxMonsters and #zone.Spawns > 0 then
-					local entry = pickSpawn(zone)
-					spawnMonster(entry.Monster, zone, entry.Levels)
+			local now = os.clock()
+			for _, slot in slots do
+				if not slot.Model and now >= slot.RespawnAt then
+					trySpawn(slot, now)
 				end
 			end
-			task.wait(2)
+			task.wait(0.5)
 		end
 	end)
 
@@ -1170,8 +1554,9 @@ function Monsters.Start()
 	task.spawn(function()
 		while true do
 			local now = os.clock()
+			local params = sightParams()
 			for _, state in active do
-				updateMonster(state, now)
+				updateMonster(state, now, params)
 			end
 			for orb, info in essences do
 				if now >= info.Expires then

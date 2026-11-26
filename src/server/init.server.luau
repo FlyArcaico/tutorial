@@ -6,10 +6,12 @@ Players.CharacterAutoLoads = false
 
 local Combat = require(script.Combat)
 local Monsters = require(script.Monsters)
+local Physics = require(script.Physics)
 local PlayerData = require(script.PlayerData)
 local Remotes = require(script.Remotes)
 local World = require(script.World)
 
+Physics.Setup()
 World.Build()
 Monsters.SetKillHandler(PlayerData.OnMonsterKilled)
 Monsters.Start()
@@ -23,9 +25,20 @@ if game:GetService("RunService"):IsStudio() then
 			Combat = Combat,
 			Monsters = Monsters,
 			PlayerData = PlayerData,
+			Physics = Physics,
 		})
 		if not ok then
 			warn("[Autocomprobación] Error al ejecutar las pruebas del servidor:", problem)
+		end
+	end)
+	-- Prueba en vivo de los monstruos cuando ya han aparecido (tarda unos 25 segundos)
+	task.delay(10, function()
+		local ok, problem = pcall(require(script.Tests).RunLive, {
+			Monsters = Monsters,
+			Physics = Physics,
+		})
+		if not ok then
+			warn("[Autocomprobación en vivo] Error al ejecutar la prueba:", problem)
 		end
 	end)
 end

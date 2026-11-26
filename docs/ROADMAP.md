@@ -128,6 +128,27 @@ Diseño aprobado por el dueño (vistas previas en `art/goblin/previews`).
   rodillas). Para un cuerpo de una sola pieza que se deforme haría falta un rig con huesos
   (Bones); se puede estudiar más adelante.
 
+## Fase 1 (monstruos) — IA, combate y física (hecha, pendiente de probar en Studio)
+
+Copia de seguridad previa: etiqueta git `backup-antes-fase1`.
+
+- [x] Física: grupos de colisión (`server/Physics.luau`). Jugadores y monstruos no se
+      empujan entre sí (ni los monstruos entre ellos); todos chocan con el mundo.
+- [x] El empujón de habilidades ya no lanza a los monstruos hacia arriba (solo horizontal,
+      fuerza según su peso). Sin estados de sentarse, trepar, caer o ragdoll.
+- [x] IA (Idle / Chase / Return) con datos en `Config.Monsters` + `Config.MonsterDefaults`:
+      detección, se para a distancia de golpe, rodea, PathfindingService si hay obstáculos o
+      se atasca, gira poco a poco, LeashRange, vuelta a casa con "Esquiva" y vida llena.
+- [x] Golpe del monstruo: daño en el momento de la animación, solo si sigues cerca, delante
+      y fuera de la zona segura; respeta el bloqueo; un golpe por ataque.
+- [x] Golpe del jugador: destello y chispas en el monstruo; no se hace daño desde la zona
+      segura.
+- [x] Aparición por sitios fijos: un monstruo por sitio, RespawnTime configurable, no
+      aparece encima de jugadores, monstruos ni objetos.
+- [x] Recompensa para el jugador que más daño hizo (una sola vez).
+- [x] Autocomprobación en vivo (muerte y reaparición) y guía `docs/PRUEBAS_MONSTRUOS.md`.
+- [ ] Pruebas manuales con 2 jugadores (ver la guía).
+
 ## Decisiones pendientes (preguntar al dueño)
 
 - Invocados: el juego tiene **Fuego / Agua / Planta**; el documento de diseño habla de **Hielo**.

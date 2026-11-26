@@ -5,7 +5,9 @@
 --   Goblin (rig R15): fotogramas clave de AnimationData.Monster (reposo, andar, correr,
 --   garrotazo, recibir daño y caer muerto).
 -- Mueve las articulaciones (Motor6D) que crea el servidor en Monsters.luau.
+local Debris = game:GetService("Debris")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local AnimationData = require(script.Parent.AnimationData)
@@ -27,12 +29,47 @@ end
 
 local trackR15 -- (se define más abajo)
 
+-- Golpe recibido: destello blanco muy breve y unas chispas (solo en pantalla, sin física)
+local function hitFlash(model, root)
+	local highlight = Instance.new("Highlight")
+	highlight.FillColor = Color3.new(1, 1, 1)
+	highlight.FillTransparency = 0.35
+	highlight.OutlineTransparency = 1
+	highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+	highlight.Parent = model
+	TweenService:Create(highlight, TweenInfo.new(0.18), { FillTransparency = 1 }):Play()
+	Debris:AddItem(highlight, 0.25)
+
+	local attachment = Instance.new("Attachment")
+	attachment.Position = Vector3.new(0, root.Size.Y * 0.4, 0)
+	attachment.Parent = root
+	local sparks = Instance.new("ParticleEmitter") -- textura de partículas que trae Roblox
+	sparks.Rate = 0
+	sparks.Lifetime = NumberRange.new(0.15, 0.3)
+	sparks.Speed = NumberRange.new(8, 14)
+	sparks.SpreadAngle = Vector2.new(180, 180)
+	sparks.Size = NumberSequence.new(0.35, 0)
+	sparks.Color = ColorSequence.new(Color3.fromRGB(255, 245, 210))
+	sparks.LightEmission = 1
+	sparks.Drag = 6
+	sparks.Parent = attachment
+	sparks:Emit(8)
+	Debris:AddItem(attachment, 0.5)
+end
+
 local function track(model)
 	local root = model:WaitForChild("HumanoidRootPart", 5)
 	local humanoid = model:WaitForChild("Humanoid", 5)
 	if not root or not humanoid then
 		return
 	end
+	local lastHealth = humanoid.Health
+	humanoid.HealthChanged:Connect(function(health)
+		if health < lastHealth - 0.5 then
+			hitFlash(model, root)
+		end
+		lastHealth = health
+	end)
 	task.wait() -- que lleguen todas las piezas
 	if model:GetAttribute("Rig") == "R15" then
 		trackR15(model, root, humanoid)
