@@ -1,0 +1,42 @@
+-- GENERADO por el script de Blender de GoblinWarrior: no editar a mano (se sobrescribe).
+-- Medidas en coordenadas de Blender (1 unidad = 1 stud; mira hacia -Y, arriba es +Z).
+-- server/MeshRig.luau las usa para montar el modelo importado en Roblox.
+return {
+	Template = "GoblinWarrior",
+	Root = Vector3.new(0.0000, 0.0200, 1.7200),
+	Parts = {
+		LowerTorso = { Center = Vector3.new(0.0076, -0.0011, 1.5494), Size = Vector3.new(0.9143, 0.7970, 0.8733), Triangles = 4120 },
+		UpperTorso = { Center = Vector3.new(0.0000, -0.0764, 2.3680), Size = Vector3.new(0.8895, 0.6336, 1.1662), Triangles = 5160 },
+		Head = { Center = Vector3.new(0.0000, -0.3073, 3.1429), Size = Vector3.new(2.1880, 0.9849, 0.9143), Triangles = 8955 },
+		LeftUpperArm = { Center = Vector3.new(0.5007, -0.1002, 2.4625), Size = Vector3.new(0.4449, 0.4837, 0.7540), Triangles = 1900 },
+		LeftLowerArm = { Center = Vector3.new(0.7400, -0.2168, 1.7883), Size = Vector3.new(0.5606, 0.8668, 0.9301), Triangles = 2892 },
+		LeftHand = { Center = Vector3.new(0.6464, -0.2541, 1.5174), Size = Vector3.new(0.1784, 0.1838, 0.2300), Triangles = 1000 },
+		RightUpperArm = { Center = Vector3.new(-0.5022, -0.0999, 2.4625), Size = Vector3.new(0.4478, 0.4834, 0.7540), Triangles = 1900 },
+		RightLowerArm = { Center = Vector3.new(-0.6267, -0.1309, 1.8665), Size = Vector3.new(0.3313, 0.3520, 0.5022), Triangles = 1300 },
+		RightHand = { Center = Vector3.new(-0.6893, -0.5674, 1.0575), Size = Vector3.new(0.2693, 1.0248, 1.2692), Triangles = 2040 },
+		LeftUpperLeg = { Center = Vector3.new(0.2385, -0.0329, 1.2725), Size = Vector3.new(0.3856, 0.3931, 0.6539), Triangles = 520 },
+		LeftLowerLeg = { Center = Vector3.new(0.2960, -0.0540, 0.6233), Size = Vector3.new(0.4064, 0.4431, 0.7002), Triangles = 1748 },
+		LeftFoot = { Center = Vector3.new(0.3000, -0.0674, 0.2011), Size = Vector3.new(0.2731, 0.4907, 0.3960), Triangles = 1000 },
+		RightUpperLeg = { Center = Vector3.new(-0.2385, -0.0329, 1.2734), Size = Vector3.new(0.3856, 0.3930, 0.6520), Triangles = 520 },
+		RightLowerLeg = { Center = Vector3.new(-0.2961, -0.0544, 0.6233), Size = Vector3.new(0.4064, 0.4425, 0.7000), Triangles = 1748 },
+		RightFoot = { Center = Vector3.new(-0.3000, -0.0674, 0.2011), Size = Vector3.new(0.2731, 0.4907, 0.3960), Triangles = 1000 },
+		Eyelids = { Center = Vector3.new(-0.0003, -0.6025, 3.1940), Size = Vector3.new(0.4566, 0.1133, 0.1744), Triangles = 520, Attach = "Head", Hidden = true },
+	},
+	Joints = {
+		{ Name = "Root", Part0 = "HumanoidRootPart", Part1 = "LowerTorso", Position = Vector3.new(0.0000, 0.0200, 1.7200) },
+		{ Name = "Waist", Part0 = "LowerTorso", Part1 = "UpperTorso", Position = Vector3.new(0.0000, 0.0000, 1.9200) },
+		{ Name = "Neck", Part0 = "UpperTorso", Part1 = "Head", Position = Vector3.new(0.0000, -0.2000, 2.9500) },
+		{ Name = "LeftShoulder", Part0 = "UpperTorso", Part1 = "LeftUpperArm", Position = Vector3.new(0.4400, -0.1000, 2.6000) },
+		{ Name = "LeftElbow", Part0 = "LeftUpperArm", Part1 = "LeftLowerArm", Position = Vector3.new(0.5900, -0.0700, 2.1000) },
+		{ Name = "LeftWrist", Part0 = "LeftLowerArm", Part1 = "LeftHand", Position = Vector3.new(0.6500, -0.1900, 1.6300) },
+		{ Name = "LeftHip", Part0 = "LowerTorso", Part1 = "LeftUpperLeg", Position = Vector3.new(0.1900, 0.0200, 1.6000) },
+		{ Name = "LeftKnee", Part0 = "LeftUpperLeg", Part1 = "LeftLowerLeg", Position = Vector3.new(0.2900, -0.1000, 0.9600) },
+		{ Name = "LeftAnkle", Part0 = "LeftLowerLeg", Part1 = "LeftFoot", Position = Vector3.new(0.3000, 0.0300, 0.3000) },
+		{ Name = "RightShoulder", Part0 = "UpperTorso", Part1 = "RightUpperArm", Position = Vector3.new(-0.4400, -0.1000, 2.6000) },
+		{ Name = "RightElbow", Part0 = "RightUpperArm", Part1 = "RightLowerArm", Position = Vector3.new(-0.5900, -0.0700, 2.1000) },
+		{ Name = "RightWrist", Part0 = "RightLowerArm", Part1 = "RightHand", Position = Vector3.new(-0.6500, -0.1900, 1.6300) },
+		{ Name = "RightHip", Part0 = "LowerTorso", Part1 = "RightUpperLeg", Position = Vector3.new(-0.1900, 0.0200, 1.6000) },
+		{ Name = "RightKnee", Part0 = "RightUpperLeg", Part1 = "RightLowerLeg", Position = Vector3.new(-0.2900, -0.1000, 0.9600) },
+		{ Name = "RightAnkle", Part0 = "RightLowerLeg", Part1 = "RightFoot", Position = Vector3.new(-0.3000, 0.0300, 0.3000) },
+	},
+}
