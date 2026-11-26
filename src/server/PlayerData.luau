@@ -21,6 +21,7 @@ local function newSlot()
 		Skills = {}, -- [skillId] = true (solo Slime)
 		Absorbed = {}, -- [monsterId] = cantidad (solo Slime)
 		Inventory = {}, -- [itemId] = cantidad
+		StatPoints = {}, -- [statId] = puntos libres repartidos
 	}
 end
 
@@ -124,9 +125,37 @@ end
 -- Atributos y estadísticas
 --------------------------------------------------------------------------------
 
+local function spentPoints(slot)
+	local spent = 0
+	for _, points in slot.StatPoints do
+		spent += points
+	end
+	return spent
+end
+
+local function computeStats(slot)
+	return Config.ComputeStats(slot.Level, slot.Race, slot.StatPoints, slot.Absorbed)
+end
+
+-- Atributos actuales del jugador (Fuerza, Vitalidad...) mientras juega
+function PlayerData.GetStats(player)
+	local slot = PlayerData.Get(player)
+	return slot and computeStats(slot)
+end
+
 -- El HUD del cliente lee estos atributos
 local function updateAttributes(player, slot)
 	local race = Config.Races[slot.Race]
+
+	-- Atributos y puntos libres
+	player:SetAttribute("Stats", Config.EncodeStats(computeStats(slot)))
+	player:SetAttribute("StatPoints", Config.TotalStatPoints(slot.Level) - spentPoints(slot))
+	player:SetAttribute("AbsorbTier", if race.CanAbsorb then Config.GetAbsorbTier(slot.Level).Name else "")
+	local absorbed = {}
+	for monsterId, count in slot.Absorbed do
+		table.insert(absorbed, monsterId .. "=" .. count)
+	end
+	player:SetAttribute("Absorbed", table.concat(absorbed, ","))
 
 	local skills = {}
 	if race.CanAbsorb then
@@ -175,18 +204,18 @@ local function applyStats(player, slot, heal)
 	end
 
 	local race = Config.Races[slot.Race]
-	local maxHealth = Config.MaxHealth(slot.Level, slot.Race, slot.Skills)
+	local stats = computeStats(slot)
+	local maxHealth = Config.MaxHealth(stats, slot.Race, slot.Skills)
+	local ratio = humanoid.Health / math.max(humanoid.MaxHealth, 1)
 	humanoid.MaxHealth = maxHealth
-	if heal then
-		humanoid.Health = maxHealth
-	end
-	humanoid.WalkSpeed = Config.WalkSpeed(slot.Race)
+	humanoid.Health = if heal then maxHealth else math.min(maxHealth, maxHealth * ratio)
+	humanoid.WalkSpeed = Config.WalkSpeed(stats, slot.Race)
 	humanoid.UseJumpPower = true
 	humanoid.JumpPower = if race.CanAbsorb and slot.Skills.HighJump then Config.Skills.HighJump.JumpPower else 50
 
-	-- Monsters lee esto para reducir el daño mágico
-	character:SetAttribute("MagicResist", race.MagicResist)
-	character:SetAttribute("PhysicalResist", race.PhysicalResist)
+	-- Monsters lee esto para reducir el daño recibido
+	character:SetAttribute("MagicResist", Config.MagicResist(stats, slot.Race))
+	character:SetAttribute("PhysicalResist", Config.PhysicalResist(stats, slot.Race))
 end
 
 --------------------------------------------------------------------------------
@@ -255,8 +284,21 @@ local function applySlimeBody(character, form)
 
 	local d = form.Size
 	local height = d * 0.8
+	body:SetAttribute("Size", d)
 	-- En R6 el HumanoidRootPart está a 3 studs del suelo
 	local base = root.CFrame * CFrame.new(0, height / 2 - 3, 0)
+
+	-- Se usan Weld (no WeldConstraint) para que el cliente pueda animar las piezas.
+	-- BaseC0 guarda la posición original de cada pieza.
+	local function attach(part)
+		local joint = Instance.new("Weld")
+		joint.Part0 = root
+		joint.Part1 = part
+		joint.C0 = root.CFrame:ToObjectSpace(part.CFrame)
+		joint:SetAttribute("BaseC0", joint.C0)
+		joint.Parent = part
+		part.Parent = body
+	end
 
 	local function sphere(name, size, cframe, color, transparency)
 		local part = makeExtraPart(name, size, cframe, color)
@@ -264,26 +306,34 @@ local function applySlimeBody(character, form)
 		local mesh = Instance.new("SpecialMesh")
 		mesh.MeshType = Enum.MeshType.Sphere
 		mesh.Parent = part
-		weld(part, root)
-		part.Parent = body
+		attach(part)
+		return part
 	end
 
-	sphere("Blob", Vector3.new(d, height, d), base, form.Color, 0.15)
+	-- Cuerpo azul y un reborde azul clarito alrededor
+	sphere("Blob", Vector3.new(d, height, d), base, form.Color, 0.08)
+	local rim = sphere("Rim", Vector3.new(d, height, d) * 1.08, base, Color3.fromRGB(175, 230, 255), 0.6)
+	rim.Material = Enum.Material.Neon
+	rim.CastShadow = false
+
+	-- Ojos achinados: dos rayas que suben y bajan con la respiración
 	for _, side in { -1, 1 } do
-		sphere(
+		local eye = makeExtraPart(
 			"Eye",
-			Vector3.new(d * 0.12, d * 0.2, d * 0.12),
-			base * CFrame.new(side * d * 0.18, height * 0.12, -d * 0.44),
-			Color3.fromRGB(20, 20, 30),
-			0
+			Vector3.new(d * 0.17, d * 0.035, d * 0.04),
+			base * CFrame.new(side * d * 0.18, height * 0.15, -d * 0.445) * CFrame.Angles(0, side * 0.38, side * 0.12),
+			Color3.fromRGB(25, 35, 60)
 		)
+		eye:SetAttribute("SlimeEye", true)
+		attach(eye)
 	end
+
 	sphere(
 		"Shine",
-		Vector3.one * d * 0.14,
-		base * CFrame.new(d * 0.22, height * 0.3, -d * 0.3),
+		Vector3.one * d * 0.13,
+		base * CFrame.new(d * 0.22, height * 0.32, -d * 0.3),
 		Color3.new(1, 1, 1),
-		0.3
+		0.25
 	)
 
 	body.Parent = character
@@ -633,6 +683,8 @@ function PlayerData.AddXP(player, amount)
 	end
 
 	local oldBody = Config.GetBody(slot.Race, slot.Level)
+	local oldTier = Config.GetAbsorbTier(slot.Level)
+	local oldAwakening = Config.GetAwakening(slot.Level)
 	slot.XP += amount
 
 	local leveledUp = false
@@ -652,7 +704,31 @@ function PlayerData.AddXP(player, amount)
 				applySlimeBody(player.Character, newBody)
 			end
 		else
-			notify(player, "¡Subiste de nivel! Ahora eres nivel " .. slot.Level, GOLD)
+			notify(
+				player,
+				"¡Subiste de nivel! Nivel "
+					.. slot.Level
+					.. "  (+"
+					.. Config.PointsPerLevel
+					.. " puntos de atributo, pulsa M)",
+				GOLD
+			)
+		end
+
+		-- La habilidad de absorber mejora (Absorber -> Devorador -> Habilidad Única)
+		local newTier = Config.GetAbsorbTier(slot.Level)
+		if Config.Races[slot.Race].CanAbsorb and newTier ~= oldTier then
+			local prefix = if newTier.Unique then "¡HABILIDAD ÚNICA despertada: " else "¡Tu habilidad evolucionó a "
+			notify(player, prefix .. newTier.Name .. "!", Color3.fromRGB(255, 90, 160))
+		end
+
+		local newAwakening = Config.GetAwakening(slot.Level)
+		if newAwakening and newAwakening ~= oldAwakening then
+			notify(
+				player,
+				"¡" .. newAwakening.Name .. "! Todos tus atributos +" .. math.floor(newAwakening.Bonus * 100) .. "%",
+				PURPLE
+			)
 		end
 		applyStats(player, slot, true)
 	end
@@ -710,21 +786,68 @@ function PlayerData.Absorb(player, monsterId, level)
 		return
 	end
 
-	slot.Absorbed[monsterId] = (slot.Absorbed[monsterId] or 0) + 1
-	local xp = Config.MonsterStats(monsterId, level).XP
+	local count = (slot.Absorbed[monsterId] or 0) + 1
+	slot.Absorbed[monsterId] = count
+	local tier = Config.GetAbsorbTier(slot.Level)
+	local xp = math.floor(Config.MonsterStats(monsterId, level).XP * tier.XPMult)
 
-	local skillId = def.Skill
-	if skillId and not slot.Skills[skillId] then
-		slot.Skills[skillId] = true
+	-- Habilidades de este monstruo que se desbloquean al llegar a X absorbidos
+	local learned = false
+	for _, skillId in Config.SkillOrder do
 		local skill = Config.Skills[skillId]
-		notify(player, "¡Habilidad robada: " .. skill.DisplayName .. "! " .. skill.Description, CYAN)
-		applyStats(player, slot, false)
-	else
-		notify(player, "Absorbiste " .. def.DisplayName .. " Nv. " .. level .. "  +" .. xp .. " XP", WHITE)
+		if skill.From == monsterId and count >= skill.Required and not slot.Skills[skillId] then
+			slot.Skills[skillId] = true
+			learned = true
+			notify(player, "¡Habilidad robada: " .. skill.DisplayName .. "! " .. skill.Description, CYAN)
+		end
+	end
+	if not learned then
+		notify(
+			player,
+			"Absorbiste " .. def.DisplayName .. " Nv. " .. level .. " (" .. count .. ")  +" .. xp .. " XP",
+			WHITE
+		)
 	end
 
 	PlayerData.AddXP(player, xp)
 	updateAttributes(player, slot)
+	applyStats(player, slot, false) -- los atributos ganados al absorber cuentan al momento
+end
+
+-- Repartir un punto libre en un atributo
+function PlayerData.AllocateStat(player, statId)
+	local slot = PlayerData.Get(player)
+	if not slot then
+		return fail("Entra al juego primero")
+	end
+	local valid = false
+	for _, stat in Config.Stats do
+		if stat.Id == statId then
+			valid = true
+		end
+	end
+	if not valid then
+		return fail("Atributo no válido")
+	end
+	if Config.TotalStatPoints(slot.Level) - spentPoints(slot) <= 0 then
+		return fail("No te quedan puntos libres")
+	end
+
+	slot.StatPoints[statId] = (slot.StatPoints[statId] or 0) + 1
+	updateAttributes(player, slot)
+	applyStats(player, slot, false)
+	return { Ok = true }
+end
+
+-- Devuelve todos los puntos libres repartidos (objeto de la tienda o al bajar de nivel)
+function PlayerData.ResetStatPoints(player)
+	local slot = PlayerData.Get(player)
+	if not slot then
+		return
+	end
+	slot.StatPoints = {}
+	updateAttributes(player, slot)
+	applyStats(player, slot, false)
 end
 
 --------------------------------------------------------------------------------
@@ -888,6 +1011,10 @@ function PlayerData.DevChangeLevel(player, delta)
 	local oldBody = Config.GetBody(slot.Race, slot.Level)
 	slot.Level = math.max(1, slot.Level + delta)
 	slot.XP = 0
+	-- Si bajas de nivel y tenías más puntos repartidos de los que te tocan, se devuelven
+	if spentPoints(slot) > Config.TotalStatPoints(slot.Level) then
+		slot.StatPoints = {}
+	end
 	updateAttributes(player, slot)
 
 	local newBody = Config.GetBody(slot.Race, slot.Level)

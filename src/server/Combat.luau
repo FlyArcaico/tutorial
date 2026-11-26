@@ -270,6 +270,58 @@ function abilityHandlers.Fireball(player, root, ability, damage)
 	end)
 end
 
+-- Onda plana que se expande por el suelo
+local function playShockwave(center, radius, color)
+	local ring = effectPart({
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.4, 2, 2),
+		Color = color,
+		Transparency = 0.2,
+		CFrame = CFrame.new(center) * CFrame.Angles(0, 0, math.rad(90)),
+	})
+	tweenAndDestroy(ring, 0.4, { Size = Vector3.new(0.4, radius * 2, radius * 2), Transparency = 1 })
+end
+
+-- Slime (robada al murciélago): onda alrededor que daña y aturde
+function abilityHandlers.SonicScreech(player, root, ability, damage)
+	local center = root.Position
+	for _, target in Monsters.InRadius(center, ability.Radius) do
+		Monsters.Damage(target, player, damage, ability.Color)
+		Monsters.Root(target, ability.StunDuration) -- aturdido: no se mueve ni ataca
+	end
+	playShockwave(center - Vector3.new(0, 1.5, 0), ability.Radius, ability.Color)
+	playShockwave(center, ability.Radius * 0.7, ability.Color)
+end
+
+-- Slime (robada al gólem): golpe al suelo delante que daña y empuja
+function abilityHandlers.RockFist(player, root, ability, damage)
+	local flat = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
+	local center = Vector3.new(root.Position.X, 0.5, root.Position.Z) + flat * ability.Distance
+	for _, target in Monsters.InRadius(center, ability.Radius) do
+		Monsters.Damage(target, player, damage, ability.Color)
+		local away = target.Root.Position - center
+		Monsters.Knockback(target, if away.Magnitude > 0.1 then away else flat, ability.Knockback)
+	end
+	playExplosion(center, ability.Radius * 0.6, ability.Color)
+	playShockwave(center, ability.Radius, ability.Color)
+
+	-- Rocas que saltan del suelo
+	for index = 1, 6 do
+		local angle = index / 6 * math.pi * 2
+		local rock = effectPart({
+			Material = Enum.Material.Slate,
+			Size = Vector3.one * 1.4,
+			Color = Color3.fromRGB(120, 110, 100),
+			CFrame = CFrame.new(center + Vector3.new(math.cos(angle) * 3, 0, math.sin(angle) * 3))
+				* CFrame.Angles(angle, angle, 0),
+		})
+		tweenAndDestroy(rock, 0.6, {
+			CFrame = rock.CFrame * CFrame.new(0, 4, 0) * CFrame.Angles(1, 1, 0),
+			Transparency = 1,
+		})
+	end
+end
+
 --------------------------------------------------------------------------------
 -- Acciones del jugador
 --------------------------------------------------------------------------------
@@ -291,7 +343,8 @@ local function onAttack(player)
 	local race = Config.Races[slot.Race]
 	local body = Config.GetBody(slot.Race, slot.Level)
 	local range = Config.AttackRange(slot.Level, slot.Race)
-	local damage = Config.AttackDamage(slot.Level, slot.Race) * stateDamageMult(state, race)
+	local stats = PlayerData.GetStats(player)
+	local damage = Config.AttackDamage(stats, slot.Race, slot.Level, slot.Skills) * stateDamageMult(state, race)
 	local root = character.HumanoidRootPart
 
 	for _, target in Monsters.InFront(root.CFrame, range) do
@@ -311,7 +364,7 @@ local function onCast(player, abilityId)
 		return
 	end
 	local ability = Config.Abilities[abilityId]
-	if not ability or not Config.HasAbility(slot.Race, abilityId) then
+	if not ability or not Config.CanUseAbility(slot.Race, slot.Skills, abilityId) then
 		return
 	end
 
@@ -330,7 +383,8 @@ local function onCast(player, abilityId)
 	state.Mana -= ability.ManaCost
 
 	local race = Config.Races[slot.Race]
-	local damage = Config.AbilityDamage(slot.Level, slot.Race, abilityId) * stateDamageMult(state, race)
+	local damage = Config.AbilityDamage(PlayerData.GetStats(player), slot.Race, abilityId)
+		* stateDamageMult(state, race)
 	abilityHandlers[abilityId](player, character.HumanoidRootPart, ability, damage)
 
 	-- Sobrecarga de Energía: usar habilidades muy seguido acumula calor
@@ -355,17 +409,37 @@ local function onAbsorb(player)
 		return
 	end
 
-	local monsterId, monsterLevel = Monsters.TryAbsorb(character)
-	if not monsterId then
+	-- Absorber -> Devorador -> Habilidad Única: más alcance, y la última absorbe todo lo cercano
+	local tier = Config.GetAbsorbTier(slot.Level)
+	local absorbed = Monsters.TryAbsorb(character, tier.Range, tier.AreaAbsorb)
+	if #absorbed == 0 then
 		notify(player, "No hay nada que absorber cerca", GREY)
 		return
 	end
 
-	local chance = Config.AbsorbChance(slot.Level, monsterLevel)
-	if math.random() <= chance then
-		PlayerData.Absorb(player, monsterId, monsterLevel)
-	else
-		PlayerData.AbsorbFailed(player, monsterId, monsterLevel, chance)
+	local successes = 0
+	for _, essence in absorbed do
+		local chance = Config.AbsorbChance(slot.Level, essence.Level)
+		if math.random() <= chance then
+			successes += 1
+			PlayerData.Absorb(player, essence.Id, essence.Level)
+		else
+			PlayerData.AbsorbFailed(player, essence.Id, essence.Level, chance)
+		end
+	end
+
+	-- Devorador y la Habilidad Única te curan y te dan maná al absorber
+	if successes > 0 then
+		local _, humanoid = getAliveCharacter(player)
+		local state = getState(player)
+		if humanoid and tier.HealOnAbsorb > 0 then
+			humanoid.Health =
+				math.min(humanoid.MaxHealth, humanoid.Health + humanoid.MaxHealth * tier.HealOnAbsorb * successes)
+		end
+		if tier.ManaOnAbsorb > 0 then
+			local maxMana = Config.MaxMana(PlayerData.GetStats(player), slot.Race)
+			state.Mana = math.min(maxMana, state.Mana + maxMana * tier.ManaOnAbsorb * successes)
+		end
 	end
 end
 
@@ -437,10 +511,11 @@ local function tick(player, dt, now)
 	local race = Config.Races[slot.Race]
 	local outOfCombat = now - state.LastCombat >= Config.OutOfCombatDelay
 
-	-- Maná
-	local maxMana = Config.MaxMana(slot.Level, slot.Race)
+	-- Maná (Espíritu hace que se regenere más rápido)
+	local stats = PlayerData.GetStats(player)
+	local maxMana = Config.MaxMana(stats, slot.Race)
 	local regen = if outOfCombat then race.ManaRegenOutOfCombat else Config.ManaRegenInCombat
-	state.Mana = math.min(maxMana, state.Mana + maxMana * regen * dt)
+	state.Mana = math.min(maxMana, state.Mana + maxMana * regen * Config.ManaRegenMult(stats) * dt)
 
 	-- Sobrecarga: el calor baja con el tiempo
 	state.Heat = math.max(0, state.Heat - Config.Overload.DecayPerSecond * dt)
@@ -473,6 +548,7 @@ local function tick(player, dt, now)
 
 	-- Correr y stamina
 	local stamina = race.Stamina
+	local maxStamina = Config.MaxStamina(stats, slot.Race) -- Agilidad da más stamina
 	local velocity = root.AssemblyLinearVelocity
 	local moving = Vector3.new(velocity.X, 0, velocity.Z).Magnitude > 2
 	local sprinting = state.WantSprint and moving and not state.Exhausted and state.Stamina > 0
@@ -484,9 +560,9 @@ local function tick(player, dt, now)
 			sprinting = false
 		end
 	elseif now - state.LastSprint >= Config.Sprint.RegenDelay then
-		state.Stamina = math.min(stamina.Max, state.Stamina + stamina.Regen * dt)
+		state.Stamina = math.min(maxStamina, state.Stamina + stamina.Regen * dt)
 	end
-	if state.Exhausted and state.Stamina >= stamina.Max * Config.Sprint.ExhaustedRecover then
+	if state.Exhausted and state.Stamina >= maxStamina * Config.Sprint.ExhaustedRecover then
 		state.Exhausted = false
 	end
 	if sprinting ~= state.Sprinting then
@@ -497,7 +573,7 @@ local function tick(player, dt, now)
 	end
 
 	-- Velocidad
-	local speed = Config.WalkSpeed(slot.Race)
+	local speed = Config.WalkSpeed(stats, slot.Race)
 	if sprinting then
 		speed *= stamina.SpeedMult
 	end
@@ -519,7 +595,7 @@ local function tick(player, dt, now)
 	player:SetAttribute("Berserk", state.Berserk)
 	player:SetAttribute("InCombat", not outOfCombat)
 	player:SetAttribute("Stamina", math.floor(state.Stamina))
-	player:SetAttribute("MaxStamina", stamina.Max)
+	player:SetAttribute("MaxStamina", maxStamina)
 	player:SetAttribute("Sprinting", sprinting)
 	player:SetAttribute("Exhausted", state.Exhausted)
 	player:SetAttribute("InSafeZone", inSafeZone)
@@ -539,8 +615,9 @@ local function onCharacterAdded(player, character)
 	-- Empezar con el maná y la stamina llenos
 	local slot = PlayerData.Get(player)
 	if slot then
-		state.Mana = Config.MaxMana(slot.Level, slot.Race)
-		state.Stamina = Config.Races[slot.Race].Stamina.Max
+		local stats = PlayerData.GetStats(player)
+		state.Mana = Config.MaxMana(stats, slot.Race)
+		state.Stamina = Config.MaxStamina(stats, slot.Race)
 	end
 
 	-- Recibir daño cuenta como estar en combate
@@ -570,7 +647,7 @@ function Combat.UseItem(player, itemId)
 		return { Ok = false, Message = "No puedes usar eso ahora" }
 	end
 
-	local isPotion = item.Effect ~= "Spin"
+	local isPotion = item.Effect ~= "Spin" and item.Effect ~= "StatReset"
 	local now = os.clock()
 	if isPotion and now - (lastPotion[player] or 0) < Config.PotionCooldown then
 		return { Ok = false, Message = "Espera un poco antes de otra poción" }
@@ -583,12 +660,14 @@ function Combat.UseItem(player, itemId)
 	if item.Effect == "Heal" then
 		humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + humanoid.MaxHealth * item.Amount)
 	elseif item.Effect == "Mana" then
-		local maxMana = Config.MaxMana(slot.Level, slot.Race)
+		local maxMana = Config.MaxMana(PlayerData.GetStats(player), slot.Race)
 		state.Mana = math.min(maxMana, state.Mana + maxMana * item.Amount)
 	elseif item.Effect == "Stamina" then
-		local maxStamina = Config.Races[slot.Race].Stamina.Max
+		local maxStamina = Config.MaxStamina(PlayerData.GetStats(player), slot.Race)
 		state.Stamina = math.min(maxStamina, state.Stamina + maxStamina * item.Amount)
 		state.Exhausted = false
+	elseif item.Effect == "StatReset" then
+		PlayerData.ResetStatPoints(player)
 	elseif item.Effect == "Spin" then
 		PlayerData.AddSpins(player, item.Amount)
 	end

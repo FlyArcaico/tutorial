@@ -622,41 +622,49 @@ end
 -- Absorber
 --------------------------------------------------------------------------------
 
--- Absorbe la esencia más cercana al personaje. Devuelve el id y el nivel del monstruo, o nil.
-function Monsters.TryAbsorb(character)
+-- Absorbe esencias cerca del personaje. Con all = false, solo la más cercana;
+-- con all = true (Habilidad Única), todas las que estén dentro del alcance.
+-- Devuelve una lista de { Id = monsterId, Level = nivel } (vacía si no hay nada).
+function Monsters.TryAbsorb(character, range, all)
 	local root = character:FindFirstChild("HumanoidRootPart")
 	if not root then
-		return nil, nil
+		return {}
 	end
 
-	local closest, closestDistance = nil, Config.AbsorbRange
+	local picked = {}
+	local closest, closestDistance = nil, range
 	for orb in essences do
 		local distance = (orb.Position - root.Position).Magnitude
-		if distance <= closestDistance then
-			closest, closestDistance = orb, distance
+		if distance <= range then
+			if all then
+				table.insert(picked, orb)
+			elseif distance <= closestDistance then
+				closest, closestDistance = orb, distance
+			end
 		end
 	end
-	if not closest then
-		return nil, nil
+	if closest then
+		table.insert(picked, closest)
 	end
 
-	local monsterId = closest:GetAttribute("MonsterId")
-	local level = closest:GetAttribute("MonsterLevel") or 1
-	essences[closest].Bob:Cancel()
-	essences[closest] = nil
+	local results = {}
+	for _, orb in picked do
+		table.insert(results, { Id = orb:GetAttribute("MonsterId"), Level = orb:GetAttribute("MonsterLevel") or 1 })
+		essences[orb].Bob:Cancel()
+		essences[orb] = nil
 
-	-- Vuela hacia el slime y desaparece
-	local suck = TweenService:Create(
-		closest,
-		TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-		{ Position = root.Position, Size = Vector3.one * 0.2 }
-	)
-	suck.Completed:Connect(function()
-		closest:Destroy()
-	end)
-	suck:Play()
-
-	return monsterId, level
+		-- Vuela hacia el slime y desaparece
+		local suck = TweenService:Create(
+			orb,
+			TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+			{ Position = root.Position, Size = Vector3.one * 0.2 }
+		)
+		suck.Completed:Connect(function()
+			orb:Destroy()
+		end)
+		suck:Play()
+	end
+	return results
 end
 
 --------------------------------------------------------------------------------

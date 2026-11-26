@@ -7,6 +7,9 @@ local CharacterMenu = require(script.CharacterMenu)
 local Dialog = require(script.Dialog)
 local Hud = require(script.Hud)
 local Menu = require(script.Menu)
+local SlimeAnimator = require(script.SlimeAnimator)
+
+SlimeAnimator.Start()
 
 local returnToMenuRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ReturnToMenu")
 local player = Players.LocalPlayer

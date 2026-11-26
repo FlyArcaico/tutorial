@@ -51,6 +51,10 @@ Remotes.Buy.OnServerInvoke = function(player, itemId, amount)
 	return PlayerData.Buy(player, itemId, amount)
 end
 
+Remotes.AllocateStat.OnServerInvoke = function(player, statId)
+	return PlayerData.AllocateStat(player, statId)
+end
+
 Remotes.SaveSetting.OnServerEvent:Connect(function(player, settingId, enabled)
 	PlayerData.SaveSetting(player, settingId, enabled)
 end)

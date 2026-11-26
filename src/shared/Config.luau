@@ -401,9 +401,40 @@ Config.Abilities = {
 		Lifesteal = 0.3, -- te cura el 30% del daño hecho
 		Color = Color3.fromRGB(90, 200, 70),
 	},
+
+	-- Habilidades que el Slime roba (ver Config.Skills)
+	SonicScreech = {
+		DisplayName = "Chillido Sónico",
+		Description = "Onda que daña y aturde a tu alrededor",
+		Icon = "🔊",
+		Key = "E",
+		Kind = "Area",
+		Cooldown = 4,
+		ManaCost = 25,
+		Radius = 14,
+		DamageMult = 1.4,
+		Magic = true,
+		StunDuration = 1.5,
+		Color = Color3.fromRGB(200, 150, 255),
+	},
+	RockFist = {
+		DisplayName = "Puño de roca",
+		Description = "Golpe al suelo que daña y empuja en área",
+		Icon = "👊",
+		Key = "R",
+		Kind = "Area",
+		Cooldown = 5,
+		ManaCost = 30,
+		Distance = 6,
+		Radius = 11,
+		DamageMult = 2.4,
+		Scaling = "Strength", -- escala con Fuerza, no con Magia
+		Magic = false,
+		Knockback = 45,
+		Color = Color3.fromRGB(170, 140, 110),
+	},
 }
 
-Config.AbsorbRange = 12 -- distancia máxima para absorber una esencia
 Config.EssenceLifetime = 20 -- segundos antes de que una esencia desaparezca
 
 -- Formas del Slime. Evoluciona automáticamente al llegar a MinLevel.
@@ -432,26 +463,113 @@ Config.Forms = {
 	},
 }
 
--- Habilidades que el Slime roba al absorber un tipo de monstruo por primera vez
+-- Habilidades que el Slime roba al absorber monstruos.
+-- From = de qué monstruo, Required = cuántos de ese tipo hay que absorber.
+-- Ability = si es una habilidad activa (está en Config.Abilities y se usa con su tecla).
 Config.Skills = {
+	-- Murciélago
+	HighJump = {
+		DisplayName = "Alas de murciélago",
+		Description = "Pasiva: saltas mucho más alto",
+		From = "Bat",
+		Required = 1,
+		JumpPower = 85,
+	},
+	SonicScreech = {
+		DisplayName = "Chillido Sónico",
+		Description = "Onda que daña y aturde a tu alrededor (E)",
+		From = "Bat",
+		Required = 5,
+		Ability = "SonicScreech",
+	},
+	-- Lobo
 	Dash = {
 		DisplayName = "Embestida de lobo",
 		Description = "Embiste hacia delante (Q)",
+		From = "Wolf",
+		Required = 1,
 		Cooldown = 2,
 		Speed = 90,
 		Duration = 0.25,
 	},
-	HighJump = {
-		DisplayName = "Alas de murciélago",
-		Description = "Pasiva: saltas mucho más alto",
-		JumpPower = 85,
+	WolfFang = {
+		DisplayName = "Colmillo de lobo",
+		Description = "Pasiva: +15% daño de tus golpes",
+		From = "Wolf",
+		Required = 5,
+		DamageBonus = 0.15,
 	},
+	-- Gólem
 	StoneSkin = {
 		DisplayName = "Piel de piedra",
 		Description = "Pasiva: +50 de vida máxima",
+		From = "Golem",
+		Required = 1,
 		BonusHealth = 50,
 	},
+	RockFist = {
+		DisplayName = "Puño de roca",
+		Description = "Golpe al suelo que hace mucho daño en área (R)",
+		From = "Golem",
+		Required = 5,
+		Ability = "RockFist",
+	},
 }
+
+-- Orden en que se muestran las habilidades del Slime
+Config.SkillOrder = { "HighJump", "SonicScreech", "Dash", "WolfFang", "StoneSkin", "RockFist" }
+
+-- Niveles de la habilidad de absorber del Slime. Mejora sola al llegar a MinLevel.
+-- (Puedes cambiar los nombres aquí si quieres.)
+Config.AbsorbTiers = {
+	{
+		Name = "Absorber",
+		MinLevel = 1,
+		Description = "Absorbe esencias de monstruos derrotados.",
+		ChanceBonus = 0,
+		Range = 12,
+		StatMult = 1, -- multiplica los atributos que ganas al absorber
+		XPMult = 1,
+		HealOnAbsorb = 0,
+		ManaOnAbsorb = 0,
+		AreaAbsorb = false,
+	},
+	{
+		Name = "Devorador",
+		MinLevel = 15,
+		Description = "+20% probabilidad, más alcance, x1,5 atributos y te cura al absorber.",
+		ChanceBonus = 0.2,
+		Range = 18,
+		StatMult = 1.5,
+		XPMult = 1.25,
+		HealOnAbsorb = 0.1,
+		ManaOnAbsorb = 0.1,
+		AreaAbsorb = false,
+	},
+	{
+		Name = "Vacío Insaciable",
+		Unique = true, -- Habilidad Única
+		MinLevel = 40,
+		Description = "Habilidad Única: absorbe todas las esencias cercanas a la vez, siempre con éxito. x2 atributos, cura y maná.",
+		ChanceBonus = 1,
+		Range = 26,
+		StatMult = 2,
+		XPMult = 1.5,
+		HealOnAbsorb = 0.2,
+		ManaOnAbsorb = 0.2,
+		AreaAbsorb = true,
+	},
+}
+
+function Config.GetAbsorbTier(level)
+	local current = Config.AbsorbTiers[1]
+	for _, tier in Config.AbsorbTiers do
+		if level >= tier.MinLevel then
+			current = tier
+		end
+	end
+	return current
+end
 
 --------------------------------------------------------------------------------
 -- Monstruos
@@ -467,7 +585,7 @@ Config.Monsters = {
 		Magic = true, -- su chillido es daño mágico (lo reducen las resistencias mágicas)
 		XP = 15,
 		Gold = 1,
-		Skill = "HighJump",
+		AbsorbStats = { Agility = 0.5, Spirit = 0.5 }, -- atributos que gana el Slime por cada uno absorbido
 		Color = Color3.fromRGB(80, 60, 110),
 		EyeColor = Color3.fromRGB(255, 60, 90),
 		Size = Vector3.new(1.8, 1.6, 1.8), -- cuerpo
@@ -480,7 +598,7 @@ Config.Monsters = {
 		Damage = 8,
 		XP = 25,
 		Gold = 1,
-		Skill = "Dash",
+		AbsorbStats = { Strength = 0.5, Agility = 0.5 },
 		Color = Color3.fromRGB(125, 115, 105),
 		EyeColor = Color3.fromRGB(255, 210, 60),
 		Size = Vector3.new(2.4, 2.2, 4.4),
@@ -493,7 +611,7 @@ Config.Monsters = {
 		Damage = 18,
 		XP = 90,
 		Gold = 1,
-		Skill = "StoneSkin",
+		AbsorbStats = { Defense = 1, Vitality = 0.5 },
 		Color = Color3.fromRGB(135, 130, 120),
 		EyeColor = Color3.fromRGB(255, 150, 40),
 		Size = Vector3.new(4.4, 4.4, 3.4),
@@ -538,9 +656,92 @@ end
 
 -- Probabilidad (0-1) de que un Slime absorba a un monstruo.
 -- Empieza en ~42% a nivel 1 y llega al 100% cuando superas bastante al monstruo.
+-- Devorador suma +20% y la Habilidad Única siempre acierta.
 function Config.AbsorbChance(playerLevel, monsterLevel)
 	local chance = 0.4 + (playerLevel - monsterLevel) * 0.1 + playerLevel * 0.02
+	chance += Config.GetAbsorbTier(playerLevel).ChanceBonus
 	return math.clamp(chance, 0.05, 1)
+end
+
+--------------------------------------------------------------------------------
+-- Atributos (sistema híbrido)
+-- 1) Cada raza sube sola sus atributos al subir de nivel (Growth).
+-- 2) Cada nivel da puntos libres para repartir donde quieras.
+-- 3) Saltos de poder: el Slime gana atributos al absorber, y todos tienen Despertares.
+--------------------------------------------------------------------------------
+
+Config.Stats = {
+	{ Id = "Strength", Name = "Fuerza", Icon = "💪", Description = "Daño de tus golpes y del Puño de roca" },
+	{ Id = "Vitality", Name = "Vitalidad", Icon = "❤️", Description = "Vida máxima" },
+	{ Id = "Defense", Name = "Defensa", Icon = "🛡️", Description = "Reduce el daño físico recibido" },
+	{ Id = "Agility", Name = "Agilidad", Icon = "💨", Description = "Velocidad y stamina" },
+	{ Id = "Magic", Name = "Magia", Icon = "🔮", Description = "Daño de habilidades mágicas y maná máximo" },
+	{ Id = "Spirit", Name = "Espíritu", Icon = "✨", Description = "Resistencia mágica y regeneración de maná" },
+}
+
+Config.BaseStat = 5 -- todos los atributos empiezan en 5 a nivel 1
+Config.PointsPerLevel = 2 -- puntos libres por cada nivel
+Config.AbsorbStatCap = 40 -- el Slime gana atributos de los primeros 40 de cada tipo absorbidos
+
+-- Crecimiento automático por nivel de cada raza
+local RACE_GROWTH = {
+	Ogre = { Strength = 3, Vitality = 3, Defense = 2, Agility = 1, Magic = 0, Spirit = 1 },
+	Elf = { Strength = 1, Vitality = 1, Defense = 1, Agility = 3, Magic = 2, Spirit = 2 },
+	MajorElf = { Strength = 1, Vitality = 1, Defense = 1, Agility = 3, Magic = 3, Spirit = 2 },
+	Summoned = { Strength = 1, Vitality = 1, Defense = 1, Agility = 1, Magic = 4, Spirit = 2 },
+	-- El Slime crece poco por nivel: su fuerza viene de lo que absorbe
+	Slime = { Strength = 1, Vitality = 2, Defense = 2, Agility = 1, Magic = 2, Spirit = 2 },
+	Human = { Strength = 2, Vitality = 2, Defense = 2, Agility = 2, Magic = 1, Spirit = 1 },
+}
+for raceId, race in Config.Races do
+	race.Growth = RACE_GROWTH[raceId] or RACE_GROWTH[race.VariantOf or ""] or RACE_GROWTH.Human
+end
+
+-- Despertares: a ciertos niveles todos tus atributos suben un % (se queda el más alto)
+Config.Awakenings = {
+	{ Level = 20, Name = "Despertar I", Bonus = 0.1 },
+	{ Level = 50, Name = "Despertar II", Bonus = 0.2 },
+	{ Level = 100, Name = "Despertar III", Bonus = 0.35 },
+}
+
+function Config.GetAwakening(level)
+	local current = nil
+	for _, awakening in Config.Awakenings do
+		if level >= awakening.Level then
+			current = awakening
+		end
+	end
+	return current
+end
+
+function Config.TotalStatPoints(level)
+	return (level - 1) * Config.PointsPerLevel
+end
+
+-- Calcula los atributos finales de un slot
+function Config.ComputeStats(level, raceId, allocated, absorbed)
+	local race = Config.Races[raceId]
+	local awakening = Config.GetAwakening(level)
+	local tier = Config.GetAbsorbTier(level)
+	local stats = {}
+	for _, stat in Config.Stats do
+		local id = stat.Id
+		local value = Config.BaseStat + race.Growth[id] * (level - 1) + (allocated[id] or 0)
+		if race.CanAbsorb then
+			for monsterId, count in absorbed do
+				local def = Config.Monsters[monsterId]
+				local bonus = def and def.AbsorbStats and def.AbsorbStats[id]
+				if bonus then
+					value += bonus * math.min(count, Config.AbsorbStatCap) * tier.StatMult
+				end
+			end
+		end
+		if awakening then
+			value *= 1 + awakening.Bonus
+		end
+		stats[id] = math.floor(value)
+	end
+	return stats
 end
 
 --------------------------------------------------------------------------------
@@ -570,29 +771,41 @@ function Config.XPToNextLevel(level)
 	return 40 + level * 20
 end
 
-function Config.MaxHealth(level, raceId, skills)
+-- Vitalidad 5 = 100 de vida; cada punto +8
+function Config.MaxHealth(stats, raceId, skills)
 	local race = Config.Races[raceId]
-	local health = (100 + (level - 1) * 15) * race.HealthMult
+	local health = (60 + stats.Vitality * 8) * race.HealthMult
 	if race.CanAbsorb and skills.StoneSkin then
 		health += Config.Skills.StoneSkin.BonusHealth
 	end
 	return math.floor(health)
 end
 
-function Config.MaxMana(level, raceId)
-	return math.floor(Config.Races[raceId].MaxMana * (1 + 0.05 * (level - 1)))
+-- Cada punto de Magia por encima de 5: +2% de maná
+function Config.MaxMana(stats, raceId)
+	return math.floor(Config.Races[raceId].MaxMana * (1 + (stats.Magic - Config.BaseStat) * 0.02))
 end
 
-function Config.AttackDamage(level, raceId)
+-- Cada punto de Agilidad por encima de 5: +1 de stamina
+function Config.MaxStamina(stats, raceId)
+	return math.floor(Config.Races[raceId].Stamina.Max + (stats.Agility - Config.BaseStat))
+end
+
+-- Fuerza 5 = 10 de daño; cada punto +2
+function Config.AttackDamage(stats, raceId, level, skills)
 	local race = Config.Races[raceId]
-	local base = 10 + (level - 1) * 4 + Config.GetBody(raceId, level).DamageBonus
-	return math.floor(base * race.DamageMult)
+	local damage = (stats.Strength * 2 + Config.GetBody(raceId, level).DamageBonus) * race.DamageMult
+	if race.CanAbsorb and skills and skills.WolfFang then
+		damage *= 1 + Config.Skills.WolfFang.DamageBonus
+	end
+	return math.floor(damage)
 end
 
-function Config.AbilityDamage(level, raceId, abilityId)
+-- Las habilidades escalan con Magia (o con Fuerza si su Scaling es "Strength")
+function Config.AbilityDamage(stats, raceId, abilityId)
 	local race = Config.Races[raceId]
 	local ability = Config.Abilities[abilityId]
-	local damage = Config.AttackDamage(level, raceId) * ability.DamageMult
+	local damage = stats[ability.Scaling or "Magic"] * 2 * ability.DamageMult
 	if ability.Magic then
 		damage *= race.MagicDamageMult
 	end
@@ -604,8 +817,26 @@ function Config.AttackRange(level, raceId)
 	return Config.Attack.Range + Config.GetBody(raceId, level).Size / 2 + race.RangeBonus
 end
 
-function Config.WalkSpeed(raceId)
-	return Config.BaseSpeed * Config.Races[raceId].SpeedMult
+-- Agilidad: +0,3% de velocidad por punto (máximo +30%)
+function Config.WalkSpeed(stats, raceId)
+	local bonus = math.min(0.3, (stats.Agility - Config.BaseStat) * 0.003)
+	return Config.BaseSpeed * Config.Races[raceId].SpeedMult * (1 + bonus)
+end
+
+-- Defensa / Espíritu: +0,4% de resistencia por punto (máximo +40%, total máximo 75%)
+function Config.PhysicalResist(stats, raceId)
+	local bonus = math.min(0.4, (stats.Defense - Config.BaseStat) * 0.004)
+	return math.min(0.75, Config.Races[raceId].PhysicalResist + bonus)
+end
+
+function Config.MagicResist(stats, raceId)
+	local bonus = math.min(0.4, (stats.Spirit - Config.BaseStat) * 0.004)
+	return math.min(0.75, Config.Races[raceId].MagicResist + bonus)
+end
+
+-- Espíritu: +1% de regeneración de maná por punto
+function Config.ManaRegenMult(stats)
+	return 1 + (stats.Spirit - Config.BaseStat) * 0.01
 end
 
 -- Oro por derrotar un monstruo: +1 normal; el Major Elf gana x3 (+3)
@@ -615,6 +846,41 @@ end
 
 function Config.HasAbility(raceId, abilityId)
 	return table.find(Config.Races[raceId].Abilities, abilityId) ~= nil
+end
+
+-- ¿Puede usar esta habilidad? (la de su raza, o una robada por el Slime)
+function Config.CanUseAbility(raceId, skills, abilityId)
+	if Config.HasAbility(raceId, abilityId) then
+		return true
+	end
+	if Config.Races[raceId].CanAbsorb then
+		for skillId, skill in Config.Skills do
+			if skill.Ability == abilityId and skills[skillId] then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- Texto "Strength=10,Vitality=12,..." para mandar los atributos al cliente
+function Config.EncodeStats(stats)
+	local parts = {}
+	for _, stat in Config.Stats do
+		table.insert(parts, stat.Id .. "=" .. (stats[stat.Id] or 0))
+	end
+	return table.concat(parts, ",")
+end
+
+function Config.DecodeStats(text)
+	local stats = {}
+	for _, stat in Config.Stats do
+		stats[stat.Id] = Config.BaseStat
+	end
+	for id, value in string.gmatch(text or "", "(%w+)=(%d+)") do
+		stats[id] = tonumber(value)
+	end
+	return stats
 end
 
 --------------------------------------------------------------------------------
@@ -731,7 +997,17 @@ Config.Items = {
 	},
 }
 
-Config.ItemOrder = { "HealthPotion", "ManaPotion", "StaminaPotion", "SpinToken" }
+Config.Items.StatReset = {
+	Name = "Pergamino del olvido",
+	Icon = "📜",
+	Description = "Devuelve todos tus puntos de atributo para repartirlos de nuevo.",
+	Price = 300,
+	Effect = "StatReset",
+	Amount = 1,
+	Color = Color3.fromRGB(240, 220, 160),
+}
+
+Config.ItemOrder = { "HealthPotion", "ManaPotion", "StaminaPotion", "SpinToken", "StatReset" }
 Config.PotionCooldown = 3 -- segundos entre pociones
 Config.MaxItemStack = 99
 

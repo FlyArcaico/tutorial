@@ -718,6 +718,7 @@ local keyNames = {
 	[Enum.KeyCode.E] = "E",
 	[Enum.KeyCode.F] = "F",
 	[Enum.KeyCode.Q] = "Q",
+	[Enum.KeyCode.R] = "R",
 }
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -854,14 +855,30 @@ local function refresh()
 	-- Rasgos y habilidades
 	local lines = {}
 	if race.CanAbsorb then
+		local tierName = player:GetAttribute("AbsorbTier") or ""
+		table.insert(lines, '<font color="#FF78B4"><b>🌀 ' .. string.upper(tierName) .. "</b></font>")
 		table.insert(lines, "<b>HABILIDADES ROBADAS</b>")
-		for skillId, skill in Config.Skills do
+		local absorbed = {}
+		for monsterId, count in string.gmatch(player:GetAttribute("Absorbed") or "", "(%w+)=(%d+)") do
+			absorbed[monsterId] = tonumber(count)
+		end
+		for _, skillId in Config.SkillOrder do
+			local skill = Config.Skills[skillId]
 			if skills[skillId] then
 				table.insert(lines, "• " .. skill.DisplayName .. ": " .. skill.Description)
+			else
+				-- Bloqueada: cuántos faltan
+				table.insert(
+					lines,
+					string.format(
+						'<font color="#8C91AA">🔒 %s (%d/%d %s)</font>',
+						skill.DisplayName,
+						math.min(absorbed[skill.From] or 0, skill.Required),
+						skill.Required,
+						Config.Monsters[skill.From].DisplayName
+					)
+				)
 			end
-		end
-		if #lines == 1 then
-			table.insert(lines, "Ninguna todavía. ¡Derrota monstruos y absórbelos!")
 		end
 	else
 		table.insert(lines, "<b>RASGOS DE " .. string.upper(race.Name) .. "</b>")
@@ -873,7 +890,7 @@ local function refresh()
 
 	-- Botones disponibles
 	for abilityId in Config.Abilities do
-		actions[abilityId].Button.Visible = Config.HasAbility(raceId, abilityId)
+		actions[abilityId].Button.Visible = Config.CanUseAbility(raceId, skills, abilityId)
 	end
 	actions.Absorb.Button.Visible = race.CanAbsorb
 	actions.Dash.Button.Visible = race.CanAbsorb and skills.Dash == true

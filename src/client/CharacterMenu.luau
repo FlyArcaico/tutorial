@@ -10,6 +10,7 @@ local UI = require(script.Parent.UI)
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local buyRemote = remotes:WaitForChild("Buy")
 local useItemRemote = remotes:WaitForChild("UseItem")
+local allocateRemote = remotes:WaitForChild("AllocateStat")
 local saveSettingRemote = remotes:WaitForChild("SaveSetting")
 
 local player = Players.LocalPlayer
@@ -99,7 +100,7 @@ UI.round(contentArea, 12)
 
 local TABS = {
 	{ Id = "Inventory", Name = "🎒 Inventario" },
-	{ Id = "Stats", Name = "📊 Stats" },
+	{ Id = "Stats", Name = "📊 Atributos" },
 	{ Id = "Shop", Name = "🛒 Tienda" },
 	{ Id = "Settings", Name = "⚙️ Ajustes" },
 }
@@ -314,34 +315,99 @@ local function renderStats()
 		})
 	end
 
+	local stats = Config.DecodeStats(player:GetAttribute("Stats"))
+	local freePoints = player:GetAttribute("StatPoints") or 0
+
 	section("PERSONAJE", {
 		{ "Raza", '<font color="#' .. rarity.Color:ToHex() .. '">' .. race.Name .. " (" .. rarity.Name .. ")</font>" },
 		{ "Nivel", tostring(level) },
 		{ "Forma", player:GetAttribute("Form") or race.Name },
+		{ "Despertar", if Config.GetAwakening(level) then Config.GetAwakening(level).Name else "Ninguno (nivel 20)" },
 	})
 
+	-- Atributos con botón + para repartir puntos libres
+	order += 1
+	local statsBox = card(page, order)
+	create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, statsBox)
+	UI.label(statsBox, {
+		Size = UDim2.new(1, 0, 0, 20),
+		TextSize = 15,
+		RichText = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = 0,
+		Text = string.format(
+			'<font color="#%s"><b>ATRIBUTOS</b></font>   Puntos libres: <font color="#%s"><b>%d</b></font>',
+			Colors.Accent:ToHex(),
+			GOLD:ToHex(),
+			freePoints
+		),
+	})
+	for index, stat in Config.Stats do
+		local growth = race.Growth[stat.Id]
+		local row = create("Frame", {
+			Size = UDim2.new(1, 0, 0, 36),
+			BackgroundColor3 = Color3.fromRGB(28, 30, 50),
+			LayoutOrder = index,
+		}, statsBox)
+		UI.round(row, 8)
+		UI.label(row, {
+			Position = UDim2.fromOffset(10, 0),
+			Size = UDim2.new(1, -120, 1, 0),
+			TextSize = 14,
+			RichText = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Text = string.format(
+				'%s <b>%s</b>  <font color="#%s">%s · +%d por nivel</font>',
+				stat.Icon,
+				stat.Name,
+				Colors.Muted:ToHex(),
+				stat.Description,
+				growth
+			),
+		})
+		UI.label(row, {
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -50, 0, 0),
+			Size = UDim2.new(0, 60, 1, 0),
+			Font = Enum.Font.GothamBlack,
+			TextSize = 18,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			Text = tostring(stats[stat.Id]),
+		})
+		local plus = UI.button(row, "+", if freePoints > 0 then Colors.Green else Colors.PanelLight, {
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -4, 0.5, 0),
+			Size = UDim2.fromOffset(36, 28),
+			TextSize = 20,
+		})
+		plus.Activated:Connect(function()
+			if freePoints > 0 then
+				call(allocateRemote, stat.Id)
+			end
+		end)
+	end
+
 	local combat = {
-		{ "Vida máxima", tostring(Config.MaxHealth(level, raceId, skills)) },
-		{ "Maná máximo", tostring(Config.MaxMana(level, raceId)) },
-		{ "Stamina", tostring(race.Stamina.Max) },
-		{ "Daño (clic)", tostring(Config.AttackDamage(level, raceId)) },
+		{ "Vida máxima", tostring(Config.MaxHealth(stats, raceId, skills)) },
+		{ "Maná máximo", tostring(Config.MaxMana(stats, raceId)) },
+		{ "Stamina", tostring(Config.MaxStamina(stats, raceId)) },
+		{ "Daño (clic)", tostring(Config.AttackDamage(stats, raceId, level, skills)) },
 		{ "Alcance (clic)", string.format("%.1f studs", Config.AttackRange(level, raceId)) },
 	}
-	for _, abilityId in race.Abilities do
-		local ability = Config.Abilities[abilityId]
-		table.insert(combat, {
-			ability.DisplayName,
-			Config.AbilityDamage(level, raceId, abilityId) .. " daño · " .. ability.ManaCost .. " MP",
-		})
+	for abilityId, ability in Config.Abilities do
+		if Config.CanUseAbility(raceId, skills, abilityId) then
+			table.insert(combat, {
+				ability.Icon .. " " .. ability.DisplayName,
+				Config.AbilityDamage(stats, raceId, abilityId) .. " daño · " .. ability.ManaCost .. " MP",
+			})
+		end
 	end
 	section("COMBATE", combat)
 
+	local speed = Config.WalkSpeed(stats, raceId)
 	section("MOVIMIENTO", {
-		{ "Velocidad", string.format("%.1f", Config.WalkSpeed(raceId)) },
-		{
-			"Corriendo",
-			string.format("%.1f (x%.2f)", Config.WalkSpeed(raceId) * race.Stamina.SpeedMult, race.Stamina.SpeedMult),
-		},
+		{ "Velocidad", string.format("%.1f", speed) },
+		{ "Corriendo", string.format("%.1f (x%.2f)", speed * race.Stamina.SpeedMult, race.Stamina.SpeedMult) },
 		{
 			"Stamina por segundo",
 			string.format("-%d al correr / +%d al descansar", race.Stamina.Drain, race.Stamina.Regen),
@@ -349,9 +415,65 @@ local function renderStats()
 	})
 
 	section("DEFENSA", {
-		{ "Resistencia física", percent(race.PhysicalResist) },
-		{ "Resistencia mágica", percent(race.MagicResist) },
+		{ "Resistencia física", percent(Config.PhysicalResist(stats, raceId)) },
+		{ "Resistencia mágica", percent(Config.MagicResist(stats, raceId)) },
 	})
+
+	-- Slime: nivel de absorción y habilidades robadas
+	if race.CanAbsorb then
+		local tier = Config.GetAbsorbTier(level)
+		local absorbed = {}
+		for monsterId, count in string.gmatch(player:GetAttribute("Absorbed") or "", "(%w+)=(%d+)") do
+			absorbed[monsterId] = tonumber(count)
+		end
+		local rows = {
+			{
+				"Habilidad",
+				'<font color="#FF78B4">' .. tier.Name .. (if tier.Unique then " (Única)" else "") .. "</font>",
+			},
+			{ "Efecto", tier.Description },
+		}
+		for _, nextTier in Config.AbsorbTiers do
+			if nextTier.MinLevel > level then
+				table.insert(rows, { "Siguiente", nextTier.Name .. " a nivel " .. nextTier.MinLevel })
+				break
+			end
+		end
+		for monsterId, def in Config.Monsters do
+			local bonus = {}
+			for statId, amount in def.AbsorbStats do
+				for _, stat in Config.Stats do
+					if stat.Id == statId then
+						table.insert(bonus, "+" .. amount * tier.StatMult .. " " .. stat.Name)
+					end
+				end
+			end
+			table.insert(rows, {
+				def.DisplayName .. " absorbidos",
+				(absorbed[monsterId] or 0) .. "  (" .. table.concat(bonus, ", ") .. " cada uno)",
+			})
+		end
+		section("ABSORCIÓN", rows)
+
+		local skillRows = {}
+		for _, skillId in Config.SkillOrder do
+			local skill = Config.Skills[skillId]
+			local have = skills[skillId] == true
+			table.insert(skillRows, {
+				(if have then "✅ " else "🔒 ") .. skill.DisplayName,
+				if have
+					then skill.Description
+					else string.format(
+						"Absorbe %d %s (%d/%d)",
+						skill.Required,
+						Config.Monsters[skill.From].DisplayName,
+						math.min(absorbed[skill.From] or 0, skill.Required),
+						skill.Required
+					),
+			})
+		end
+		section("HABILIDADES ROBADAS", skillRows)
+	end
 
 	local extras = {
 		{ "Daño mágico", "+" .. percent(race.MagicDamageMult - 1) },
@@ -539,6 +661,10 @@ local WATCHED = {
 	Race = true,
 	Form = true,
 	Skills = true,
+	Stats = true,
+	StatPoints = true,
+	Absorbed = true,
+	AbsorbTier = true,
 }
 player.AttributeChanged:Connect(function(name)
 	if window.Visible and (WATCHED[name] or string.sub(name, 1, 7) == "Setting") then

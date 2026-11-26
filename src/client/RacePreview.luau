@@ -220,16 +220,19 @@ function builders.Slime(model)
 		mesh.Parent = p
 	end
 
-	sphere(Vector3.new(d, height, d), base, Color3.fromRGB(90, 170, 255), 0.1)
+	-- Bola azul con reborde azul clarito
+	sphere(Vector3.new(d, height, d), base, Color3.fromRGB(90, 170, 255), 0.05)
+	sphere(Vector3.new(d, height, d) * 1.08, base, Color3.fromRGB(175, 230, 255), 0.6)
+	-- Ojos achinados: dos rayas
 	for _, side in { -1, 1 } do
-		sphere(
-			Vector3.new(d * 0.12, d * 0.2, d * 0.12),
-			base * CFrame.new(side * d * 0.18, height * 0.12, -d * 0.44),
-			Color3.fromRGB(20, 20, 30),
-			0
+		part(
+			model,
+			Vector3.new(d * 0.17, d * 0.035, d * 0.04),
+			base * CFrame.new(side * d * 0.18, height * 0.15, -d * 0.445) * CFrame.Angles(0, side * 0.38, side * 0.12),
+			Color3.fromRGB(25, 35, 60)
 		)
 	end
-	sphere(Vector3.one * d * 0.14, base * CFrame.new(d * 0.22, height * 0.3, -d * 0.3), Color3.new(1, 1, 1), 0.3)
+	sphere(Vector3.one * d * 0.13, base * CFrame.new(d * 0.22, height * 0.32, -d * 0.3), Color3.new(1, 1, 1), 0.25)
 end
 
 function RacePreview.Build(raceId)

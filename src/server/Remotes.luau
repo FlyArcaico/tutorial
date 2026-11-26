@@ -31,6 +31,7 @@ local Remotes = {
 	Buy = make("RemoteFunction", "Buy"), -- comprar en la tienda
 	UseItem = make("RemoteFunction", "UseItem"), -- usar un objeto del inventario
 	SaveSetting = make("RemoteEvent", "SaveSetting"), -- guardar un ajuste
+	AllocateStat = make("RemoteFunction", "AllocateStat"), -- repartir un punto de atributo
 }
 
 folder.Parent = ReplicatedStorage
