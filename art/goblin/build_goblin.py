@@ -1139,7 +1139,12 @@ for part, ob in final.items():
         raise RuntimeError(f"{part} supera el límite de triángulos de Roblox")
 print(f"[goblin] total: {total_tris} triángulos")
 
-# 6) Exportar a FBX (15 mallas con los nombres de R15 y la textura incluida)
+# 6) Exportar a FBX (15 mallas con los nombres de R15 y la textura incluida).
+#    Sin colores por vértice: ya están horneados en la textura, y Roblox los multiplica por
+#    ella (las piezas que no los tenían salían negras).
+for ob in final.values():
+    for attr in list(ob.data.color_attributes):
+        ob.data.color_attributes.remove(attr)
 select_only(list(final.values()))
 bpy.ops.export_scene.fbx(
     filepath=os.path.join(EXPORT, "GoblinTier1.fbx"),
@@ -1153,6 +1158,7 @@ bpy.ops.export_scene.fbx(
     axis_up="Y",
     apply_scale_options="FBX_SCALE_ALL",
     add_leaf_bones=False,
+    colors_type="NONE",
 )
 
 
