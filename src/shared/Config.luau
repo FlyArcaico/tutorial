@@ -26,7 +26,7 @@ Config.Testers = {}
 -- Velocidad, combate y maná
 --------------------------------------------------------------------------------
 
-Config.BaseSpeed = 16 -- velocidad del Human y de los monstruos
+Config.BaseSpeed = 12 -- velocidad andando del Human y de los monstruos (correr es bastante más rápido)
 
 Config.Attack = {
 	Range = 8, -- studs delante del personaje (más la mitad de su tamaño)
@@ -135,7 +135,7 @@ Config.Races = {
 		},
 		CanAbsorb = true,
 		MaxMana = 120,
-		Stamina = { Max = 110, Drain = 18, Regen = 20, SpeedMult = 1.5 },
+		Stamina = { Max = 110, Drain = 18, Regen = 20, SpeedMult = 1.65 },
 		PhysicalResist = 0.25,
 		HealthRegen = 0.03, -- fracción de vida por segundo fuera de combate
 	},
@@ -199,7 +199,7 @@ Config.Races = {
 		PhysicalResist = 0.15,
 		BodyScale = 1.8,
 		MaxMana = 60,
-		Stamina = { Max = 80, Drain = 24, Regen = 16, SpeedMult = 1.35 }, -- pesado: corre menos tiempo
+		Stamina = { Max = 80, Drain = 24, Regen = 16, SpeedMult = 1.5 }, -- pesado: corre menos tiempo
 		Berserk = { Threshold = 0.5, DamageMult = 1.3, SpeedMult = 1.1 },
 	},
 	Elf = {
@@ -212,7 +212,7 @@ Config.Races = {
 		SpeedMult = 1.15,
 		DamageMult = 1.1,
 		MaxMana = 150,
-		Stamina = { Max = 130, Drain = 17, Regen = 20, SpeedMult = 1.55 }, -- ágil: corre más y más rápido
+		Stamina = { Max = 130, Drain = 17, Regen = 20, SpeedMult = 1.75 }, -- ágil: corre más y más rápido
 		ElfEars = true,
 	},
 	MajorElf = {
@@ -237,7 +237,7 @@ Config.Races = {
 		GoldMult = 3,
 		BodyScale = 1.15,
 		MaxMana = 220,
-		Stamina = { Max = 140, Drain = 16, Regen = 22, SpeedMult = 1.55 },
+		Stamina = { Max = 140, Drain = 16, Regen = 22, SpeedMult = 1.75 },
 		ElfEars = true,
 		ElfHat = true,
 		Abilities = { "AirSlash" },
@@ -268,7 +268,7 @@ for _, race in Config.Races do
 	race.ManaRegenOutOfCombat = race.ManaRegenOutOfCombat or 0.03
 	race.Abilities = race.Abilities or {}
 	-- Stamina base (Human, Invocados): 100 de stamina, corre a x1,45 unos 5 segundos
-	race.Stamina = race.Stamina or { Max = 100, Drain = 20, Regen = 18, SpeedMult = 1.45 }
+	race.Stamina = race.Stamina or { Max = 100, Drain = 20, Regen = 18, SpeedMult = 1.65 }
 	race.CanAbsorb = race.CanAbsorb == true
 end
 

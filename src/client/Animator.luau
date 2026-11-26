@@ -1,34 +1,45 @@
--- Animaciones procedurales para personajes R6 (cada jugador las calcula para todos):
--- andar y correr fluidos (piernas, brazos y torso), respiración en reposo, salto/caída,
--- bloqueo (Guard) y golpes: puñetazos alternando derecha/izquierda, tajo con espada, etc.
--- Se hacen moviendo las articulaciones (Motor6D.Transform) cada frame.
+-- Reproductor de animaciones de los personajes R6 (cada jugador lo ejecuta para todos):
+-- mezcla reposo / andar / correr según la velocidad, salto y caída, y encima por capas
+-- la espada al hombro, la guardia y los golpes (puñetazos alternos, combos de espada...).
+-- Las animaciones están en AnimationData.luau.
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local AnimationData = require(script.Parent.AnimationData)
+
+local Anim = AnimationData.Animations
 local Animator = {}
 
 local tracked = {} -- [character] = estado
 
--- Duración de cada animación de ataque (segundos)
-local ATTACK_DURATION = {
-	Punch = 0.32,
-	Swift = 0.24, -- Elf: puñetazos más rápidos
-	Smash = 0.5,
-	Cast = 0.42,
-	Slash = 0.38,
+local WALK_SPEED_REFERENCE = Config.BaseSpeed -- a esta velocidad el ciclo de andar va a velocidad normal
+local RUN_SPEED_REFERENCE = Config.BaseSpeed * 1.65
+local COMBO_RESET = 1.2 -- segundos sin pegar para volver al primer golpe del combo
+
+-- Ataque normal según el estilo que manda el servidor
+local ATTACK_ANIMATION = {
+	Smash = "Smash",
+	Cast = "Cast",
 }
-
-local function lerp(a, b, t)
-	return a + (b - a) * t
-end
-
-local function smooth(t)
-	t = math.clamp(t, 0, 1)
-	return t * t * (3 - 2 * t)
-end
 
 local function approach(current, target, rate, dt)
 	return current + (target - current) * math.min(1, rate * dt)
+end
+
+-- Quitar el script de animación de Roblox y parar sus animaciones (si las hubiera)
+local function removeDefaultAnimations(character, humanoid)
+	local animate = character:FindFirstChild("Animate")
+	if animate then
+		animate:Destroy()
+	end
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if animator then
+		for _, track in animator:GetPlayingAnimationTracks() do
+			track:Stop(0)
+		end
+	end
 end
 
 local function setup(character)
@@ -36,11 +47,12 @@ local function setup(character)
 	local root = character:WaitForChild("HumanoidRootPart", 10)
 	local torso = character:WaitForChild("Torso", 10)
 	if not humanoid or not root or not torso then
-		return -- no es R6
+		warn("[Slime Rebirth] Animaciones: el personaje no es R6", character:GetFullName())
+		return
 	end
 	local joints = {
-		Root = root:WaitForChild("RootJoint", 5),
-		Neck = torso:WaitForChild("Neck", 5),
+		Torso = root:WaitForChild("RootJoint", 5),
+		Head = torso:WaitForChild("Neck", 5),
 		RightShoulder = torso:WaitForChild("Right Shoulder", 5),
 		LeftShoulder = torso:WaitForChild("Left Shoulder", 5),
 		RightHip = torso:WaitForChild("Right Hip", 5),
@@ -51,20 +63,38 @@ local function setup(character)
 			return
 		end
 	end
+	removeDefaultAnimations(character, humanoid)
+	character.ChildAdded:Connect(function(child)
+		if child.Name == "Animate" then
+			task.defer(child.Destroy, child)
+		end
+	end)
+
 	tracked[character] = {
 		Player = Players:GetPlayerFromCharacter(character),
 		Humanoid = humanoid,
 		Root = root,
 		Joints = joints,
-		Phase = 0,
-		Amplitude = 0,
-		Lean = 0,
-		Guard = 0,
+		-- Tiempos de cada animación de fondo
+		IdleTime = 0,
+		WalkTime = 0,
+		RunTime = 0,
+		FallTime = 0,
+		AirTime = 0,
+		-- Pesos (se suavizan para que las transiciones no den saltos)
+		Move = 0,
+		Running = 0,
 		Air = 0,
-		NextHand = 1, -- 1 = derecha, -1 = izquierda
-		AttackStyle = nil,
-		AttackStart = 0,
-		AttackHand = 1,
+		Carry = 0,
+		Guard = 0,
+		-- Acción (golpe) en curso
+		Action = nil,
+		ActionTime = 0,
+		ActionSpeed = 1,
+		ActionWeight = 0,
+		NextHand = 1,
+		Combo = 0,
+		LastAttack = 0,
 	}
 end
 
@@ -77,153 +107,130 @@ local function watchPlayer(player)
 	end)
 end
 
+local function getWeapon(state)
+	local player = state.Player
+	if not player then
+		return nil
+	end
+	local raceId = player:GetAttribute("Race")
+	local race = raceId and Config.Races[raceId]
+	if race and race.CanAbsorb then
+		return nil -- el Slime no lleva armas
+	end
+	local weaponId = player:GetAttribute("Equipped")
+	return weaponId and Config.Weapons[weaponId]
+end
+
+-- Lo llama el cliente cuando el servidor avisa de un ataque (AttackFx)
 function Animator.PlayAttack(character, style)
 	local state = tracked[character]
-	if not state or not ATTACK_DURATION[style] then
+	if not state then
 		return
 	end
-	state.AttackStyle = style
-	state.AttackStart = os.clock()
-	-- Los puñetazos alternan: primero derecha, luego izquierda
-	if style == "Punch" or style == "Swift" then
-		state.AttackHand = state.NextHand
+	local now = os.clock()
+	local name, speed
+
+	if style == "Slash" then
+		-- Combo de tajos: cada espada tiene su combo y su velocidad
+		local weapon = getWeapon(state)
+		local combo = AnimationData.SwordCombos[if weapon then weapon.Rarity else "Common"]
+		if now - state.LastAttack > COMBO_RESET then
+			state.Combo = 0
+		end
+		state.Combo = state.Combo % #combo + 1
+		name = combo[state.Combo]
+		speed = 1 + (if weapon then weapon.AttackSpeed else 0)
+	elseif style == "Punch" or style == "Swift" then
+		-- Puñetazos alternos: derecha, izquierda, derecha...
+		name = if state.NextHand == 1 then "PunchRight" else "PunchLeft"
 		state.NextHand = -state.NextHand
+		speed = if style == "Swift" then 1.35 else 1
 	else
-		state.AttackHand = 1
+		name = ATTACK_ANIMATION[style]
+		speed = 1
+	end
+	if not name or not Anim[name] then
+		return
+	end
+
+	state.LastAttack = now
+	state.Action = Anim[name]
+	state.ActionTime = 0
+	state.ActionSpeed = speed
+end
+
+-- Mezcla "overlay" encima de "pose" con un peso (solo en las articulaciones del overlay)
+local function layer(pose, overlay, weight)
+	if weight <= 0.001 then
+		return
+	end
+	for joint, cframe in overlay do
+		pose[joint] = pose[joint]:Lerp(cframe, weight)
 	end
 end
 
--- Ángulo del brazo para un puñetazo: atrás (preparar) -> delante rápido -> volver
-local function punchCurve(t, base)
-	if t < 0.25 then
-		return lerp(base, -0.45, smooth(t / 0.25)), 0
-	elseif t < 0.5 then
-		local k = smooth((t - 0.25) / 0.25)
-		return lerp(-0.45, 1.75, k), k
-	end
-	local k = smooth((t - 0.5) / 0.5)
-	return lerp(1.75, base, k), 1 - k
-end
-
-local function animate(state, dt, now)
-	local humanoid, root, joints = state.Humanoid, state.Root, state.Joints
+local function animate(state, dt)
+	local humanoid, root = state.Humanoid, state.Root
 	local player = state.Player
 	local velocity = root.AssemblyLinearVelocity
 	local speed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
-	local running = player ~= nil and player:GetAttribute("Sprinting") == true
-	local guarding = player ~= nil and player:GetAttribute("Guarding") == true
 	local inAir = humanoid.FloorMaterial == Enum.Material.Air
+	local sprinting = player ~= nil and player:GetAttribute("Sprinting") == true
+	local guarding = player ~= nil and player:GetAttribute("Guarding") == true
+	local weapon = getWeapon(state)
 
-	-- Suavizar cambios (empezar/parar de andar, inclinarse al correr, guardia, aire)
-	local moving = speed > 0.6 and not inAir
-	local targetAmplitude = if moving then (if running then 1.1 else math.clamp(speed / 16, 0.35, 1) * 0.72) else 0
-	state.Amplitude = approach(state.Amplitude, targetAmplitude, 9, dt)
-	state.Lean = approach(state.Lean, if running and moving then 0.3 else (if moving then 0.06 else 0), 7, dt)
+	-- Pesos suavizados
+	state.Move = approach(state.Move, if speed > 0.8 and not inAir then 1 else 0, 10, dt)
+	state.Running = approach(state.Running, if sprinting and speed > 4 then 1 else 0, 8, dt)
+	state.Air = approach(state.Air, if inAir then 1 else 0, 12, dt)
 	state.Guard = approach(state.Guard, if guarding then 1 else 0, 14, dt)
-	state.Air = approach(state.Air, if inAir then 1 else 0, 10, dt)
+	state.Carry = approach(state.Carry, if weapon and not guarding then 1 else 0, 10, dt)
 
-	-- La zancada va con la distancia recorrida: así los pies no "patinan"
-	if moving then
-		state.Phase += dt * math.max(speed * 0.55, 4)
+	-- Tiempos: andar y correr avanzan según la velocidad real (así los pies no patinan)
+	state.IdleTime += dt
+	state.WalkTime += dt * math.clamp(speed / WALK_SPEED_REFERENCE, 0.5, 1.6)
+	state.RunTime += dt * math.clamp(speed / RUN_SPEED_REFERENCE, 0.6, 1.5)
+	if inAir then
+		state.AirTime += dt
+		state.FallTime += dt
 	else
-		-- Al pararse, las piernas vuelven poco a poco al centro
-		state.Phase = approach(state.Phase, math.floor(state.Phase / math.pi + 0.5) * math.pi, 6, dt)
+		state.AirTime = 0
 	end
 
-	local amplitude = state.Amplitude
-	local cycle = math.sin(state.Phase)
-	local legSwing = cycle * amplitude
-	local armSwing = cycle * amplitude * (if running then 1.15 else 0.85)
+	-- Capa base: reposo -> andar -> correr
+	local pose = AnimationData.Sample(Anim.Idle, state.IdleTime)
+	layer(pose, AnimationData.Sample(Anim.Walk, state.WalkTime), state.Move)
+	layer(pose, AnimationData.Sample(Anim.Run, state.RunTime), state.Move * state.Running)
 
-	-- Base: andar/correr (brazos al revés que las piernas)
-	local rightArm, leftArm = armSwing, armSwing
-	local rightLeg, leftLeg = -legSwing, -legSwing
-	-- El torso sube y baja dos veces por zancada, gira un poco con los hombros y se balancea
-	local bob = -math.abs(cycle) * 0.12 * amplitude + 0.06 * amplitude
-	local twist = cycle * 0.13 * amplitude
-	local roll = math.cos(state.Phase) * 0.04 * amplitude
-	local lean = state.Lean
+	-- En el aire: subiendo = salto, bajando = caída
+	if state.Air > 0.01 then
+		local airPose = if velocity.Y > 1
+			then AnimationData.Sample(Anim.Jump, state.AirTime)
+			else AnimationData.Sample(Anim.Fall, state.FallTime)
+		layer(pose, airPose, state.Air)
+	end
 
-	-- Respirar en reposo
-	local idle = 1 - math.min(1, amplitude * 2)
-	local breathe = math.sin(now * 1.8) * 0.035 * idle
-	rightArm += breathe
-	leftArm -= breathe
-	bob += math.sin(now * 1.8) * 0.02 * idle
+	-- Espada al hombro y guardia (solo la parte de arriba)
+	layer(pose, AnimationData.Sample(Anim.SwordCarry, 0), state.Carry)
+	layer(pose, AnimationData.Sample(if weapon then Anim.GuardSword else Anim.Guard, state.IdleTime), state.Guard)
 
-	-- En el aire: brazos arriba y piernas separadas
-	local air = state.Air
-	local rising = velocity.Y > 2
-	rightArm = lerp(rightArm, if rising then 2.1 else 2.6, air)
-	leftArm = lerp(leftArm, if rising then -2.1 else -2.6, air)
-	rightLeg = lerp(rightLeg, 0.35, air)
-	leftLeg = lerp(leftLeg, 0.35, air)
-
-	-- Bloqueo: brazos en guardia delante y un poco agachado
-	local guard = state.Guard
-	rightArm = lerp(rightArm, 1.5, guard)
-	leftArm = lerp(leftArm, -1.5, guard)
-	bob = lerp(bob, -0.2, guard)
-	twist = lerp(twist, 0, guard)
-
-	-- Ataques
-	local style = state.AttackStyle
-	if style then
-		local t = (now - state.AttackStart) / ATTACK_DURATION[style]
-		if t >= 1 then
-			state.AttackStyle = nil
-		elseif style == "Punch" or style == "Swift" then
-			-- Puñetazo con un brazo (alterna en cada golpe) y el torso gira hacia ese lado
-			local hand = state.AttackHand
-			local angle, strike = punchCurve(t, if hand == 1 then rightArm else -leftArm)
-			if hand == 1 then
-				rightArm = angle
-			else
-				leftArm = -angle
-			end
-			twist += hand * 0.4 * strike
-			lean += 0.1 * strike
-		elseif style == "Slash" then
-			-- Espada: levantar, tajo rápido de arriba abajo, volver
-			local raised, strike
-			if t < 0.3 then
-				raised, strike = lerp(rightArm, 2.9, smooth(t / 0.3)), 0
-			elseif t < 0.55 then
-				local k = smooth((t - 0.3) / 0.25)
-				raised, strike = lerp(2.9, 0.35, k), k
-			else
-				local k = smooth((t - 0.55) / 0.45)
-				raised, strike = lerp(0.35, rightArm, k), 1 - k
-			end
-			rightArm = raised
-			twist += -0.3 + 0.75 * strike
-			lean += 0.15 * strike
-		elseif style == "Smash" then
-			-- Ogre: sube los dos brazos y machaca hacia abajo
-			local up = if t < 0.55 then smooth(t / 0.55) else 1 - smooth((t - 0.55) / 0.45)
-			local arms = if t < 0.55 then 3 * up else 1.2 + 1.8 * up
-			rightArm, leftArm = arms, -arms
-			if t > 0.55 then
-				bob -= 0.25 * (1 - up)
-				lean += 0.2 * (1 - up)
-			end
-		elseif style == "Cast" then
-			-- Invocado: mano derecha hacia delante como lanzando magia
-			local k = math.sin(t * math.pi)
-			rightArm = lerp(rightArm, 1.6, math.min(1, k * 1.6))
-			leftArm = lerp(leftArm, -0.5, k)
-			lean += 0.08 * k
+	-- Golpe en curso: entra rápido y sale suave al final
+	local action = state.Action
+	if action then
+		state.ActionTime += dt * state.ActionSpeed
+		local t = state.ActionTime
+		if t >= action.Length then
+			state.Action = nil
+		else
+			local fadeIn = math.min(1, t / 0.04)
+			local fadeOut = math.min(1, (action.Length - t) / 0.1)
+			layer(pose, AnimationData.Sample(action, t), math.min(fadeIn, fadeOut))
 		end
 	end
 
-	-- Aplicar. En RootJoint y Neck: X = inclinar adelante/atrás, Y = ladear, Z = girar (eje vertical)
-	joints.RightShoulder.Transform = CFrame.Angles(0, 0, rightArm)
-	joints.LeftShoulder.Transform = CFrame.Angles(0, 0, leftArm)
-	joints.RightHip.Transform = CFrame.Angles(0, 0, rightLeg)
-	joints.LeftHip.Transform = CFrame.Angles(0, 0, leftLeg)
-	joints.Root.Transform = CFrame.new(0, 0, bob) * CFrame.Angles(lean, roll, twist)
-	-- La cabeza compensa para seguir mirando al frente
-	joints.Neck.Transform = CFrame.Angles(-lean * 0.7, -roll, -twist * 0.7)
+	for joint, motor in state.Joints do
+		motor.Transform = pose[joint] or CFrame.identity
+	end
 end
 
 function Animator.Start()
@@ -232,15 +239,14 @@ function Animator.Start()
 	end
 	Players.PlayerAdded:Connect(watchPlayer)
 
-	-- PreSimulation va después de las animaciones de Roblox: así las nuestras mandan
+	-- PreSimulation va justo después del paso de animación de Roblox: lo nuestro manda
 	RunService.PreSimulation:Connect(function(dt)
-		local now = os.clock()
 		for character, state in tracked do
 			if not character.Parent or state.Humanoid.Health <= 0 then
 				tracked[character] = nil
 				continue
 			end
-			animate(state, dt, now)
+			animate(state, dt)
 		end
 	end)
 end

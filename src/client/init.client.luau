@@ -8,6 +8,7 @@ local CharacterMenu = require(script.CharacterMenu)
 local Dialog = require(script.Dialog)
 local Hud = require(script.Hud)
 local Menu = require(script.Menu)
+local MonsterAnimator = require(script.MonsterAnimator)
 local ShopWindow = require(script.ShopWindow)
 local SlimeAnimator = require(script.SlimeAnimator)
 
@@ -19,6 +20,7 @@ local player = Players.LocalPlayer
 -- Animaciones de andar/atacar de todos los personajes y del Slime
 Animator.Start()
 SlimeAnimator.Start()
+MonsterAnimator.Start()
 
 attackFxRemote.OnClientEvent:Connect(function(character, style)
 	if not character then

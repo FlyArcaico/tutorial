@@ -43,7 +43,10 @@ end
 -- Diseño de cada monstruo
 --------------------------------------------------------------------------------
 
--- Cada builder recibe add(name, size, offset, color, props) para pegar piezas al cuerpo
+-- Cada builder recibe add(name, size, offset, color, props, options) para pegar piezas al cuerpo.
+-- options.Joint = nombre de la articulación (Motor6D) y options.Pivot = punto de giro
+-- (relativo al cuerpo). Así el cliente puede animar patas, alas, brazos, cabeza y cola.
+-- options.Attach = pegar la pieza a otra (por ejemplo, los ojos a la cabeza).
 local builders = {}
 
 function builders.Bat(root, add, s, color, eyeColor)
@@ -51,19 +54,26 @@ function builders.Bat(root, add, s, color, eyeColor)
 	mesh.MeshType = Enum.MeshType.Sphere
 	mesh.Parent = root
 
-	local wing = color:Lerp(BLACK, 0.35)
+	local wingColor = color:Lerp(BLACK, 0.35)
 	for _, side in { -1, 1 } do
-		add(
+		local tag = if side > 0 then "R" else "L"
+		-- Ala: gira desde el lado del cuerpo
+		local wing = add(
 			"Wing",
 			Vector3.new(2.4, 0.15, 1.4) * s,
 			CFrame.new(side * 2 * s, 0.3 * s, 0.1 * s) * CFrame.Angles(0, 0, side * math.rad(20)),
-			wing
+			wingColor,
+			nil,
+			{ Joint = "Wing" .. tag, Pivot = CFrame.new(side * 0.85 * s, 0.1 * s, 0.1 * s) }
 		)
+		-- Punta del ala: gira desde el final del ala (para que el aleteo se doble)
 		add(
 			"WingTip",
 			Vector3.new(1.2, 0.12, 0.9) * s,
 			CFrame.new(side * 3.6 * s, 0.85 * s, 0.3 * s) * CFrame.Angles(0, 0, side * math.rad(35)),
-			wing:Lerp(BLACK, 0.2)
+			wingColor:Lerp(BLACK, 0.2),
+			nil,
+			{ Joint = "Tip" .. tag, Pivot = CFrame.new(side * 3.1 * s, 0.7 * s, 0.2 * s), Attach = wing }
 		)
 		add(
 			"Ear",
@@ -87,31 +97,54 @@ function builders.Wolf(_root, add, s, color, eyeColor)
 	local dark = color:Lerp(BLACK, 0.3)
 
 	add("Belly", Vector3.new(2.2, 0.6, 4) * s, CFrame.new(0, -0.9 * s, 0), light)
-	add("Head", Vector3.new(1.8, 1.7, 1.8) * s, CFrame.new(0, 0.7 * s, -2.6 * s), color)
-	add("Snout", Vector3.new(0.9, 0.7, 1.1) * s, CFrame.new(0, 0.35 * s, -3.9 * s), light)
-	add("Nose", Vector3.new(0.4, 0.3, 0.2) * s, CFrame.new(0, 0.6 * s, -4.5 * s), BLACK)
+	-- Cabeza: gira desde el cuello; hocico, nariz, orejas y ojos van pegados a ella
+	local head = add(
+		"Head",
+		Vector3.new(1.8, 1.7, 1.8) * s,
+		CFrame.new(0, 0.7 * s, -2.6 * s),
+		color,
+		nil,
+		{ Joint = "Neck", Pivot = CFrame.new(0, 0.6 * s, -1.9 * s) }
+	)
+	add("Snout", Vector3.new(0.9, 0.7, 1.1) * s, CFrame.new(0, 0.35 * s, -3.9 * s), light, nil, { Attach = head })
+	add("Nose", Vector3.new(0.4, 0.3, 0.2) * s, CFrame.new(0, 0.6 * s, -4.5 * s), BLACK, nil, { Attach = head })
+	-- Cola: gira desde la base
 	add(
 		"Tail",
 		Vector3.new(0.45, 0.45, 2) * s,
 		CFrame.new(0, 0.8 * s, 2.9 * s) * CFrame.Angles(math.rad(35), 0, 0),
-		dark
+		dark,
+		nil,
+		{ Joint = "Tail", Pivot = CFrame.new(0, 0.55 * s, 2.1 * s) }
 	)
 	for _, side in { -1, 1 } do
 		add(
 			"Ear",
 			Vector3.new(0.45, 0.75, 0.3) * s,
 			CFrame.new(side * 0.55 * s, 1.85 * s, -2.4 * s) * CFrame.Angles(0, 0, -side * 0.2),
-			dark
+			dark,
+			nil,
+			{ Attach = head }
 		)
 		add(
 			"Eye",
 			Vector3.one * 0.3 * s,
 			CFrame.new(side * 0.45 * s, 0.95 * s, -3.5 * s),
 			eyeColor,
-			{ Shape = Enum.PartType.Ball, Material = Enum.Material.Neon }
+			{ Shape = Enum.PartType.Ball, Material = Enum.Material.Neon },
+			{ Attach = head }
 		)
+		-- Patas: giran desde arriba (la cadera / el hombro)
 		for _, z in { -1.5, 1.5 } do
-			add("Leg", Vector3.new(0.6, 1.6, 0.6) * s, CFrame.new(side * 0.8 * s, -1.9 * s, z * s), dark)
+			local tag = (if side > 0 then "R" else "L") .. (if z < 0 then "F" else "B")
+			add(
+				"Leg",
+				Vector3.new(0.6, 1.6, 0.6) * s,
+				CFrame.new(side * 0.8 * s, -1.9 * s, z * s),
+				dark,
+				nil,
+				{ Joint = "Leg" .. tag, Pivot = CFrame.new(side * 0.8 * s, -1.1 * s, z * s) }
+			)
 		end
 	end
 end
@@ -122,27 +155,53 @@ function builders.Golem(root, add, s, color, eyeColor)
 	local moss = Color3.fromRGB(80, 130, 60)
 	local slate = { Material = Enum.Material.Slate }
 
-	add("Head", Vector3.new(2.2, 1.8, 2.2) * s, CFrame.new(0, 3.1 * s, -0.2 * s), color, slate)
+	local head = add(
+		"Head",
+		Vector3.new(2.2, 1.8, 2.2) * s,
+		CFrame.new(0, 3.1 * s, -0.2 * s),
+		color,
+		slate,
+		{ Joint = "Neck", Pivot = CFrame.new(0, 2.2 * s, -0.2 * s) }
+	)
 	add("Core", Vector3.new(1, 1, 0.3) * s, CFrame.new(0, 0.6 * s, -1.75 * s), eyeColor, {
 		Material = Enum.Material.Neon,
 	})
 	for _, side in { -1, 1 } do
-		add("Arm", Vector3.new(1.6, 4.2, 1.6) * s, CFrame.new(side * 3.1 * s, -0.4 * s, 0), dark, slate)
-		add("Fist", Vector3.new(2, 1.6, 2) * s, CFrame.new(side * 3.1 * s, -3 * s, 0), color, slate)
-		add("Leg", Vector3.new(1.8, 2.8, 1.8) * s, CFrame.new(side * 1.2 * s, -3.6 * s, 0), dark, slate)
+		local tag = if side > 0 then "R" else "L"
+		-- Brazo con su puño: gira desde el hombro
+		local arm = add(
+			"Arm",
+			Vector3.new(1.6, 4.2, 1.6) * s,
+			CFrame.new(side * 3.1 * s, -0.4 * s, 0),
+			dark,
+			slate,
+			{ Joint = "Arm" .. tag, Pivot = CFrame.new(side * 3.1 * s, 1.6 * s, 0) }
+		)
+		add("Fist", Vector3.new(2, 1.6, 2) * s, CFrame.new(side * 3.1 * s, -3 * s, 0), color, slate, { Attach = arm })
 		add(
 			"Moss",
 			Vector3.new(1.8, 0.4, 1.8) * s,
 			CFrame.new(side * 3.1 * s, 1.85 * s, 0),
 			moss,
-			{ Material = Enum.Material.Grass }
+			{ Material = Enum.Material.Grass },
+			{ Attach = arm }
+		)
+		-- Pierna: gira desde la cadera
+		add(
+			"Leg",
+			Vector3.new(1.8, 2.8, 1.8) * s,
+			CFrame.new(side * 1.2 * s, -3.6 * s, 0),
+			dark,
+			slate,
+			{ Joint = "Leg" .. tag, Pivot = CFrame.new(side * 1.2 * s, -2.2 * s, 0) }
 		)
 		add(
 			"Eye",
 			Vector3.new(0.45, 0.3, 0.1) * s,
 			CFrame.new(side * 0.5 * s, 3.2 * s, -1.32 * s),
 			eyeColor,
-			{ Material = Enum.Material.Neon }
+			{ Material = Enum.Material.Neon },
+			{ Attach = head }
 		)
 	end
 end
@@ -314,7 +373,7 @@ local function spawnMonster(monsterId, zone)
 	root.Parent = model
 	model.PrimaryPart = root
 
-	local function add(name, partSize, offset, partColor, props)
+	local function add(name, partSize, offset, partColor, props, options)
 		local part = Instance.new("Part")
 		part.Name = name
 		part.Size = partSize
@@ -330,10 +389,24 @@ local function spawnMonster(monsterId, zone)
 		for key, value in props or {} do
 			part[key] = value
 		end
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = root
-		weld.Part1 = part
-		weld.Parent = part
+
+		local attachTo = options and options.Attach or root
+		if options and options.Joint then
+			-- Articulación animable: los ejes del punto de giro van alineados con el cuerpo
+			local pivot = root.CFrame * options.Pivot
+			local motor = Instance.new("Motor6D")
+			motor.Name = options.Joint
+			motor.Part0 = attachTo
+			motor.Part1 = part
+			motor.C0 = attachTo.CFrame:ToObjectSpace(pivot)
+			motor.C1 = part.CFrame:ToObjectSpace(pivot)
+			motor.Parent = part
+		else
+			local weld = Instance.new("WeldConstraint")
+			weld.Part0 = attachTo
+			weld.Part1 = part
+			weld.Parent = part
+		end
 		part.Parent = model
 		return part
 	end
@@ -505,6 +578,8 @@ local function updateMonster(state, now)
 		local reach = math.max(state.Size.X, state.Size.Z) / 2 + 3.5
 		if distance <= reach + state.Def.HipHeight and now - state.LastAttack >= 1.2 then
 			state.LastAttack = now
+			-- Los clientes ven este cambio y reproducen la animación de ataque
+			state.Model:SetAttribute("AttackTick", (state.Model:GetAttribute("AttackTick") or 0) + 1)
 			if playerDamageHandler then
 				-- Combat aplica resistencias y el bloqueo (Guard)
 				playerDamageHandler(target, state.Stats.Damage, state.Def.Magic == true)

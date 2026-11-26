@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
+local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local ProfileService = require(ServerScriptService.ServerPackages.ProfileService)
@@ -639,18 +640,60 @@ local function attachWeapon(character, weaponId)
 	model.Parent = character
 end
 
-local function waitForAppearance(player)
-	local deadline = os.clock() + 5
-	while not player:HasAppearanceLoaded() and player.Parent and os.clock() < deadline do
-		task.wait(0.1)
-	end
-end
-
+-- Crea el personaje SIEMPRE en R6 a partir del avatar del jugador (sin depender de la
+-- configuración de Studio) y sin el script "Animate" de Roblox: las animaciones las
+-- hace nuestro sistema (client/Animator.luau).
 local function loadCharacter(player)
-	if PlayerData.Get(player) then
-		-- El juego está configurado como R6 (StarterPlayer.GameSettingsAvatar en default.project.json)
-		player:LoadCharacter()
+	if not PlayerData.Get(player) then
+		return
 	end
+
+	local description = nil
+	if player.UserId > 0 then
+		local ok, result = pcall(function()
+			return Players:GetHumanoidDescriptionFromUserId(player.UserId)
+		end)
+		if ok then
+			description = result
+		end
+	end
+	description = description or Instance.new("HumanoidDescription")
+
+	local ok, rig = pcall(function()
+		return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R6)
+	end)
+	if not PlayerData.Get(player) then
+		if ok and rig then
+			rig:Destroy()
+		end
+		return -- volvió al menú mientras cargaba
+	end
+	if not ok or not rig then
+		warn("[Slime Rebirth] No se pudo crear el personaje R6, se usa el normal:", rig)
+		player:LoadCharacter()
+		return
+	end
+
+	local animate = rig:FindFirstChild("Animate")
+	if animate then
+		animate:Destroy()
+	end
+	rig.Name = player.Name
+	local humanoid = rig:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.DisplayName = player.DisplayName
+	end
+
+	-- Aparecer en el punto de aparición del pueblo
+	local spawnLocation = Workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+	local spawnCFrame = if spawnLocation then spawnLocation.CFrame * CFrame.new(0, 3.2, 0) else CFrame.new(0, 5, 30)
+	rig:PivotTo(spawnCFrame)
+
+	if player.Character then
+		player.Character:Destroy()
+	end
+	player.Character = rig
+	rig.Parent = Workspace
 end
 
 local function onCharacterAdded(player, character)
@@ -675,7 +718,11 @@ local function onCharacterAdded(player, character)
 		character.DescendantAdded:Connect(hideHumanBody)
 		applySlimeBody(character, Config.GetForm(slot.Level))
 	else
-		waitForAppearance(player)
+		-- Quitar el script de animación de Roblox si viniera (usamos el nuestro)
+		local animate = character:FindFirstChild("Animate")
+		if animate then
+			animate:Destroy()
+		end
 		if character.Parent == nil then
 			return
 		end
