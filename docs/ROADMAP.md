@@ -147,7 +147,12 @@ Copia de seguridad previa: etiqueta git `backup-antes-fase1`.
       aparece encima de jugadores, monstruos ni objetos.
 - [x] Recompensa para el jugador que más daño hizo (una sola vez).
 - [x] Autocomprobación en vivo (muerte y reaparición) y guía `docs/PRUEBAS_MONSTRUOS.md`.
-- [ ] Pruebas manuales con 2 jugadores (ver la guía).
+- [x] Probado por el dueño: física, recompensas, muerte y reaparición funcionan.
+- [x] Ajuste: sin teletransportes al atacar (el giro ya no toca el CFrame: AlignOrientation),
+      golpe comprobado en cada fotograma de la bajada del garrote (caja delante del goblin,
+      sin paredes en medio), detección 40 / persecución 75 / correa 70 studs y memoria de
+      aggro de quien le pega.
+- [ ] Volver a probar en Studio: teletransporte, golpes de lado y detrás, persecución larga.
 
 ## Decisiones pendientes (preguntar al dueño)
 

@@ -703,14 +703,21 @@ Config.Monsters = {
 		EyeColor = Color3.fromRGB(30, 30, 25),
 		Size = Vector3.new(1, 1.2, 0.6), -- HumanoidRootPart (invisible)
 		HipHeight = 0.81,
-		AggroRange = 28, -- radio de detección
-		LeashRange = 40, -- si se aleja más de esto de su sitio, deja de perseguir y vuelve
+		DetectionRange = 40, -- radio para verte por primera vez (si no hay paredes en medio)
+		ChaseRange = 75, -- te sigue persiguiendo mientras estés a menos de esto
+		AggroMemory = 5, -- segundos que te recuerda si te alejas más que ChaseRange
+		LeashRange = 70, -- si se aleja más de esto de su sitio, deja de perseguir y vuelve
 		WalkSpeed = 7, -- paseando
 		ChaseSpeed = 11, -- persiguiendo (más lento que un jugador andando: se le puede escapar)
 		ReturnSpeed = 15, -- volviendo a su sitio
-		AttackReach = 3.6, -- distancia para golpear (desde su centro)
+		TurnSpeed = 300, -- grados por segundo al girarse hacia ti
+		AttackReach = 3.6, -- hasta dónde llega el golpe (desde su centro)
+		AttackWidth = 3.2, -- ancho del barrido del garrote
 		AttackCooldown = 1.7, -- torpe: tarda en volver a atacar
-		AttackWindup = 0.45, -- el golpe llega al bajar el garrote (no al empezar la animación)
+		-- Segundos de la animación en los que el garrote baja: el golpe se comprueba en
+		-- cada fotograma de esta ventana (coincide con AnimationData, ataque del Goblin)
+		AttackHitWindow = { 0.36, 0.56 },
+		AttackStepSpeed = 3, -- pasito hacia ti mientras levanta el garrote
 		WanderRadius = 12, -- pasea cerca de donde apareció
 		CorpseTime = 2.6, -- segundos que se queda el cuerpo para la animación de muerte
 		RespawnTime = 12, -- segundos desde que muere hasta que vuelve a aparecer en su sitio
@@ -720,14 +727,18 @@ Config.Monsters = {
 -- Valores por defecto del comportamiento de los monstruos (cada monstruo puede cambiarlos
 -- en su entrada de Config.Monsters). Así un monstruo nuevo solo necesita sus datos.
 Config.MonsterDefaults = {
-	AggroRange = 30, -- radio de detección
+	DetectionRange = 30, -- radio para ver a un jugador por primera vez (AggroRange en los antiguos)
+	ChaseRange = 50, -- sigue persiguiendo mientras su objetivo esté a menos de esto
+	AggroMemory = 4, -- segundos que recuerda a su objetivo si se aleja más que ChaseRange
 	LeashRange = 45, -- distancia máxima a su sitio antes de rendirse y volver
-	LoseInterestRange = 1.6, -- deja de perseguir si te alejas AggroRange × esto
 	WalkSpeed = 12,
 	ChaseSpeed = 12,
 	ReturnSpeed = 16,
+	TurnSpeed = 360, -- grados por segundo al girarse hacia su objetivo
+	AttackWidth = 3, -- ancho de la zona de golpe
+	AttackStepSpeed = 0, -- velocidad del pasito al preparar el golpe (0 = se queda quieto)
 	AttackCooldown = 1.2,
-	AttackWindup = 0, -- 0 = el daño llega al empezar el ataque
+	AttackWindup = 0, -- sin AttackHitWindow: el golpe se comprueba en este instante
 	WanderRadius = 15,
 	CorpseTime = 1,
 	RespawnTime = 10,
@@ -735,6 +746,9 @@ Config.MonsterDefaults = {
 
 -- Un valor del monstruo, o el de por defecto si no lo tiene
 function Config.MonsterSetting(def, key)
+	if key == "DetectionRange" and def.DetectionRange == nil and def.AggroRange then
+		return def.AggroRange -- nombre antiguo (murciélago, lobo, gólem)
+	end
 	local value = def[key]
 	if value == nil then
 		return Config.MonsterDefaults[key]

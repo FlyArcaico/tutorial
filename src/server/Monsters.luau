@@ -5,6 +5,7 @@
 local PathfindingService = game:GetService("PathfindingService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
@@ -798,6 +799,20 @@ local function spawnMonster(slot)
 	end
 	humanoid.Parent = model
 
+	-- Giro físico para mirar al jugador (al atacar o parado a su lado) sin tocar su CFrame
+	local facingAttachment = Instance.new("Attachment")
+	facingAttachment.Name = "FacingAttachment"
+	facingAttachment.Parent = root
+	local align = Instance.new("AlignOrientation")
+	align.Name = "Facing"
+	align.Mode = Enum.OrientationAlignmentMode.OneAttachment
+	align.Attachment0 = facingAttachment
+	align.MaxTorque = math.huge
+	align.MaxAngularVelocity = math.rad(Config.MonsterSetting(def, "TurnSpeed"))
+	align.Responsiveness = 30
+	align.Enabled = false
+	align.Parent = root
+
 	local state = {
 		Id = monsterId,
 		Def = def,
@@ -814,6 +829,8 @@ local function spawnMonster(slot)
 		Home = position, -- su sitio: pasea cerca y vuelve aquí
 		Mode = "Idle", -- Idle (en su sitio) / Chase (persigue) / Return (vuelve a su sitio)
 		Target = nil, -- personaje al que persigue
+		LastInRange = 0, -- última vez que su objetivo estuvo a su alcance (o le pegó)
+		Align = align,
 		DamageBy = {}, -- [Player] = daño hecho (para la recompensa)
 		Dead = false,
 		LastAttack = 0,
@@ -937,33 +954,76 @@ local function aliveRoot(character)
 	return nil
 end
 
--- ¿Puede (seguir) persiguiendo a este personaje?
-local function canChase(state, character)
+-- Lo que bloquea la vista y el paso: todo menos personajes, monstruos y efectos.
+-- Se calcula una vez por ciclo de la IA.
+local function sightParams()
+	local ignore = { monsterFolder, essenceFolder, effectsFolder }
+	for _, player in Players:GetPlayers() do
+		if player.Character then
+			table.insert(ignore, player.Character)
+		end
+	end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = ignore
+	return params
+end
+
+local function wallBetween(fromPosition, toPosition, params)
+	return Workspace:Raycast(fromPosition, toPosition - fromPosition, params) ~= nil
+end
+
+-- Sigue persiguiendo a su objetivo mientras esté dentro de ChaseRange. Si se aleja más,
+-- aún lo recuerda AggroMemory segundos (no lo olvida por alejarse un poco).
+local function keepChasing(state, character, now)
 	local root = aliveRoot(character)
 	if not root or Config.IsInSafeZone(root.Position) then
 		return false -- los jugadores en la zona segura están protegidos
 	end
 	local def = state.Def
-	local aggro = Config.MonsterSetting(def, "AggroRange")
-	-- El jugador está demasiado lejos del sitio del monstruo
-	if flat(root.Position - state.Home).Magnitude > Config.MonsterSetting(def, "LeashRange") + aggro * 0.5 then
-		return false
+	if (root.Position - state.Root.Position).Magnitude <= Config.MonsterSetting(def, "ChaseRange") then
+		state.LastInRange = now
+		return true
 	end
-	return (root.Position - state.Root.Position).Magnitude <= aggro * Config.MonsterSetting(def, "LoseInterestRange")
+	return now - state.LastInRange <= Config.MonsterSetting(def, "AggroMemory")
 end
 
-local function findTarget(state)
-	local best, bestDistance = nil, Config.MonsterSetting(state.Def, "AggroRange")
+-- Detección inicial: el jugador más cercano dentro de DetectionRange y a la vista
+local function findTarget(state, params)
+	local best, bestDistance = nil, Config.MonsterSetting(state.Def, "DetectionRange")
+	local eyes = state.Root.Position
 	for _, player in Players:GetPlayers() do
 		local root = aliveRoot(player.Character)
-		if root then
-			local distance = (root.Position - state.Root.Position).Magnitude
-			if distance < bestDistance and canChase(state, player.Character) then
+		if root and not Config.IsInSafeZone(root.Position) then
+			local distance = (root.Position - eyes).Magnitude
+			if distance < bestDistance and not wallBetween(eyes, root.Position, params) then
 				best, bestDistance = player.Character, distance
 			end
 		end
 	end
 	return best
+end
+
+-- Girar hacia un punto con física (AlignOrientation): gira poco a poco, como al andar.
+-- Nunca se toca el CFrame del monstruo (eso lo teletransporta y los demás lo ven saltar).
+local function faceTowards(state, point)
+	local direction = flat(point - state.Root.Position)
+	if direction.Magnitude < 0.1 then
+		return
+	end
+	state.Align.CFrame = CFrame.lookAt(Vector3.zero, direction.Unit)
+	if not state.Align.Enabled then
+		state.Align.Enabled = true
+		state.Humanoid.AutoRotate = false
+	end
+end
+
+-- Volver a girar según hacia dónde camina (lo normal al moverse)
+local function releaseFacing(state)
+	if state.Align.Enabled then
+		state.Align.Enabled = false
+		state.Humanoid.AutoRotate = true
+	end
 end
 
 function Monsters.Damage(state, player, amount, color)
@@ -987,9 +1047,16 @@ function Monsters.Damage(state, player, amount, color)
 	if player then
 		state.LastHitBy = player
 		state.DamageBy[player] = (state.DamageBy[player] or 0) + math.min(amount, humanoid.Health)
-		-- Si le pegan, va a por quien le pegó aunque estuviera fuera de su radio de detección
-		if character and (state.Target == nil or not canChase(state, state.Target)) and canChase(state, character) then
-			state.Target = character
+		-- Aggro: quien le pega se convierte en su objetivo (aunque esté fuera de su radio de
+		-- detección) si no tiene otro. Recibir daño de su objetivo le renueva la memoria.
+		if attackerRoot and aliveRoot(character) then
+			local now = os.clock()
+			if state.Target == character then
+				state.LastInRange = now
+			elseif state.Target == nil or not keepChasing(state, state.Target, now) then
+				state.Target = character
+				state.LastInRange = now
+			end
 		end
 	end
 	humanoid:TakeDamage(amount)
@@ -1022,23 +1089,9 @@ local function wanderPoint(state)
 	return point
 end
 
--- Lo que bloquea el paso (para decidir si hace falta buscar un camino): todo menos personajes,
--- monstruos y efectos. Se calcula una vez por ciclo de la IA.
-local function sightParams()
-	local ignore = { monsterFolder, essenceFolder, effectsFolder }
-	for _, player in Players:GetPlayers() do
-		if player.Character then
-			table.insert(ignore, player.Character)
-		end
-	end
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = ignore
-	return params
-end
-
 -- Caminar hacia un punto: en línea recta si se puede; si hay algo en medio (o se quedó
--- atascado), con un camino de PathfindingService que se calcula sin parar la IA.
+-- atascado), con un camino de PathfindingService que se calcula sin parar la IA y solo
+-- se recalcula si el destino se movió bastante o pasó un rato.
 local function moveTo(state, destination, params, now)
 	local humanoid = state.Humanoid
 	local origin = state.Root.Position
@@ -1123,68 +1176,107 @@ local function separation(state)
 	return push
 end
 
--- Girar hacia un punto poco a poco (como mucho maxStep radianes por ciclo)
-local function faceTowards(state, point, maxStep)
-	local root = state.Root
-	local wanted = flat(point - root.Position)
-	local current = flat(root.CFrame.LookVector)
-	if wanted.Magnitude < 0.1 or current.Magnitude < 0.1 then
-		return
+-- Cuántos monstruos persiguen a este personaje (para rodearlo solo si son varios)
+local function chasersOf(character)
+	local count = 0
+	for _, other in active do
+		if other.Target == character then
+			count += 1
+		end
 	end
-	wanted, current = wanted.Unit, current.Unit
-	local angle = math.acos(math.clamp(current:Dot(wanted), -1, 1))
-	if angle < math.rad(8) then
-		return
-	end
-	local sign = if current:Cross(wanted).Y >= 0 then 1 else -1
-	root.CFrame = CFrame.new(root.Position)
-		* CFrame.Angles(0, sign * math.min(angle, maxStep), 0)
-		* root.CFrame.Rotation
+	return count
 end
 
--- Golpe: anima, se queda quieto preparando el golpe y el daño llega en el momento de la
--- animación en que baja el arma. Solo acierta si el objetivo sigue cerca, delante y fuera
--- de la zona segura. Un ataque = como mucho un golpe.
-local function startAttack(state, target, now)
+-- ¿Está el objetivo dentro del golpe? Una caja delante del monstruo: desde su centro hasta
+-- su alcance y del ancho del barrido del arma (+ el grosor del jugador). Nada detrás de él.
+local PLAYER_RADIUS = 0.9
+local function inAttackVolume(state, targetRoot)
+	local root = state.Root
+	local look = flat(root.CFrame.LookVector)
+	if look.Magnitude < 0.1 then
+		return false
+	end
+	look = look.Unit
+	local offset = targetRoot.Position - root.Position
+	local forward = flat(offset):Dot(look)
+	local sideways = math.abs(flat(offset):Dot(look:Cross(Vector3.yAxis)))
+	local halfWidth = Config.MonsterSetting(state.Def, "AttackWidth") / 2 + PLAYER_RADIUS
+	return forward >= -0.3
+		and forward <= state.Reach
+		and sideways <= halfWidth
+		and math.abs(offset.Y) <= state.Size.Y + state.Def.HipHeight + 2
+end
+
+-- Ventana del golpe: los segundos de la animación en los que el arma está bajando
+local function attackWindow(def)
+	local window = def.AttackHitWindow
+	if window then
+		return window[1], window[2]
+	end
+	local windup = Config.MonsterSetting(def, "AttackWindup")
+	return windup, windup
+end
+
+-- Golpe: el monstruo se queda plantado (como mucho da un pasito), sigue girándose hacia el
+-- objetivo mientras levanta el arma (con una pequeña predicción de hacia dónde va) y,
+-- durante los fotogramas en que baja el arma, comprueba en cada frame si el objetivo está
+-- dentro del golpe. Daña una sola vez y nunca a través de paredes ni por detrás.
+local function startAttack(state, target, now, params)
 	local def, humanoid = state.Def, state.Humanoid
 	state.LastAttack = now
-	faceTowards(state, target.HumanoidRootPart.Position, math.pi)
-	humanoid:MoveTo(state.Root.Position)
+	local hitStart, hitEnd = attackWindow(def)
+	state.AttackingUntil = now + hitEnd + 0.15
 	-- Los clientes ven este cambio y reproducen la animación de ataque
 	state.Model:SetAttribute("AttackTick", (state.Model:GetAttribute("AttackTick") or 0) + 1)
 
-	local windup = Config.MonsterSetting(def, "AttackWindup")
-	state.AttackingUntil = now + windup + 0.15
-
-	local function resolve()
-		if state.Dead or humanoid.Health <= 0 or state.RootedUntil > os.clock() then
+	local stepSpeed = Config.MonsterSetting(def, "AttackStepSpeed")
+	local hit = false
+	local connection
+	connection = RunService.Heartbeat:Connect(function()
+		local elapsed = os.clock() - now
+		if state.Dead or humanoid.Health <= 0 or elapsed > hitEnd + 0.15 or state.RootedUntil > os.clock() then
+			connection:Disconnect()
 			return
 		end
+		local root = state.Root
 		local targetRoot = aliveRoot(target)
-		if not targetRoot or Config.IsInSafeZone(targetRoot.Position) then
+		if not targetRoot then
+			humanoid:MoveTo(root.Position)
 			return
 		end
-		local offset = targetRoot.Position - state.Root.Position
-		if offset.Magnitude > state.Reach * 1.2 then
-			return -- se apartó a tiempo: falla
-		end
-		local flatOffset = flat(offset)
-		local look = flat(state.Root.CFrame.LookVector)
-		if flatOffset.Magnitude > 2 and look.Magnitude > 0.1 and look.Unit:Dot(flatOffset.Unit) < 0.1 then
-			return -- se puso detrás
-		end
-		if playerDamageHandler then
-			-- Combat aplica resistencias y el bloqueo (Guard)
-			playerDamageHandler(target, state.Stats.Damage, def.Magic == true)
+
+		if elapsed < hitStart then
+			-- Preparando: se gira hacia donde va el jugador y, si se ha alejado un poco, da un
+			-- pasito hacia él (caminando, sin saltos)
+			local predicted = targetRoot.Position + flat(targetRoot.AssemblyLinearVelocity) * 0.15
+			faceTowards(state, predicted)
+			local gap = flat(targetRoot.Position - root.Position)
+			if stepSpeed > 0 and gap.Magnitude > state.Reach * 0.75 then
+				humanoid.WalkSpeed = stepSpeed
+				humanoid:MoveTo(targetRoot.Position - gap.Unit * state.Reach * 0.6)
+			else
+				humanoid.WalkSpeed = 0
+			end
 		else
-			target.Humanoid:TakeDamage(state.Stats.Damage)
+			humanoid.WalkSpeed = 0
 		end
-	end
-	if windup <= 0 then
-		resolve()
-	else
-		task.delay(windup, resolve)
-	end
+
+		if not hit and elapsed >= hitStart and elapsed <= hitEnd then
+			if
+				not Config.IsInSafeZone(targetRoot.Position)
+				and inAttackVolume(state, targetRoot)
+				and not wallBetween(root.Position, targetRoot.Position, params)
+			then
+				hit = true
+				if playerDamageHandler then
+					-- Combat aplica resistencias y el bloqueo (Guard)
+					playerDamageHandler(target, state.Stats.Damage, def.Magic == true)
+				else
+					target.Humanoid:TakeDamage(state.Stats.Damage)
+				end
+			end
+		end
+	end)
 end
 
 local function chase(state, target, now, params, slowMult)
@@ -1197,19 +1289,25 @@ local function chase(state, target, now, params, slowMult)
 
 	local moving = false
 	if distance > stopAt then
-		-- Se acerca a un punto a su alrededor (no al centro del jugador): no lo empuja, y
-		-- si hay varios monstruos, cada uno llega por un lado
-		local around = CFrame.Angles(0, math.rad(state.SurroundAngle), 0):VectorToWorldSpace(offset.Unit)
-		local destination = targetRoot.Position - around * stopAt * 0.9 + separation(state) * 1.5
+		-- Corre hacia un punto a distancia de golpe (no al centro del jugador). Solo si hay
+		-- varios monstruos detrás del mismo jugador, cada uno llega por un lado.
+		releaseFacing(state)
+		local direction = offset.Unit
+		if chasersOf(target) > 1 then
+			direction = CFrame.Angles(0, math.rad(state.SurroundAngle), 0):VectorToWorldSpace(direction)
+		end
+		local destination = targetRoot.Position - direction * stopAt * 0.9 + separation(state) * 1.5
 		moveTo(state, Vector3.new(destination.X, root.Position.Y, destination.Z), params, now)
 		moving = true
 	else
-		humanoid:MoveTo(root.Position) -- se para a distancia de golpe y lo mira
-		faceTowards(state, targetRoot.Position, math.rad(50))
+		-- A distancia de golpe: se para y se gira hacia el jugador poco a poco
+		humanoid:MoveTo(root.Position)
+		faceTowards(state, targetRoot.Position)
 	end
 
-	if distance <= state.Reach and now - state.LastAttack >= Config.MonsterSetting(def, "AttackCooldown") then
-		startAttack(state, target, now)
+	local canAttack = now - state.LastAttack >= Config.MonsterSetting(def, "AttackCooldown")
+	if canAttack and distance <= state.Reach and not wallBetween(root.Position, targetRoot.Position, params) then
+		startAttack(state, target, now, params)
 		moving = false
 	end
 	return moving
@@ -1218,6 +1316,7 @@ end
 -- Vuelve a su sitio y se recupera del todo
 local function resetMonster(state, now)
 	setMode(state, "Idle")
+	releaseFacing(state)
 	state.Target = nil
 	state.DamageBy = {}
 	state.LastHitBy = nil
@@ -1252,9 +1351,8 @@ local function updateMonster(state, now, params)
 		humanoid:Move(Vector3.zero)
 		return
 	end
-	-- Mientras prepara un golpe se queda quieto (así se ve el ataque y se puede esquivar)
+	-- Atacando: el propio golpe controla el giro y los pasos (ver startAttack)
 	if state.AttackingUntil > now then
-		humanoid.WalkSpeed = 0
 		return
 	end
 	local def = state.Def
@@ -1272,6 +1370,7 @@ local function updateMonster(state, now, params)
 	local wantsToMove = false
 
 	if state.Mode == "Return" then
+		releaseFacing(state)
 		humanoid.WalkSpeed = Config.MonsterSetting(def, "ReturnSpeed") * slowMult
 		if fromHome < 3 then
 			resetMonster(state, now)
@@ -1283,18 +1382,21 @@ local function updateMonster(state, now, params)
 		return
 	end
 
-	-- Elegir objetivo: sigue con el que tiene mientras pueda; si no, el más cercano
+	-- Objetivo: sigue con el que tiene mientras pueda; si no, busca uno a la vista
 	local target = state.Target
-	if target and not canChase(state, target) then
+	if target and not keepChasing(state, target, now) then
 		target = nil
 	end
 	if not target then
-		target = findTarget(state)
+		target = findTarget(state, params)
+		if target then
+			state.LastInRange = now
+		end
 	end
 	state.Target = target
 
 	if target and fromHome > Config.MonsterSetting(def, "LeashRange") then
-		-- Demasiado lejos de casa: se rinde
+		-- Demasiado lejos de su sitio: se rinde y vuelve
 		state.Target = nil
 		setMode(state, "Return")
 		return
@@ -1308,6 +1410,7 @@ local function updateMonster(state, now, params)
 		setMode(state, "Return")
 		return
 	else
+		releaseFacing(state)
 		humanoid.WalkSpeed = Config.MonsterSetting(def, "WalkSpeed") * slowMult
 		if now >= state.NextWander then
 			state.NextWander = now + rng:NextNumber(4, 9)
@@ -1565,7 +1668,7 @@ function Monsters.Start()
 					orb:Destroy()
 				end
 			end
-			task.wait(0.25)
+			task.wait(0.15)
 		end
 	end)
 end

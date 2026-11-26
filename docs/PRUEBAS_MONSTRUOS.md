@@ -26,12 +26,14 @@ Se abren 3 ventanas: el servidor y dos jugadores.
 
 | # | Prueba | Qué debe pasar |
 |---|---|---|
-| 1 | Un jugador se acerca a un goblin | A unos 28 studs te ve y corre hacia ti. Se para a distancia de golpe (no se mete dentro de ti) y te mira. |
+| 1 | Un jugador se acerca a un goblin | A unos 40 studs te ve (si no hay una pared en medio) y corre hacia ti sin saltos ni teletransportes. Se para a distancia de golpe y se gira hacia ti poco a poco. |
 | 2 | Quedarse quieto delante | Levanta el garrote, lo baja y el daño llega al bajarlo. Espera ~1,7 s entre golpes. |
-| 3 | Apartarse justo cuando levanta el garrote | Falla el golpe (sin daño). |
+| 3 | Apartarse lejos justo cuando levanta el garrote | Falla el golpe (sin daño). |
+| 3b | Moverse un poco de lado mientras ataca | Se gira hacia ti y normalmente te acierta. |
+| 3c | Ponerse detrás de él mientras ataca | Intenta girarse; si llegas a su espalda antes de que baje el garrote, falla. |
 | 4 | Bloquear (F) | El golpe gasta la barra de guardia en vez de vida. |
 | 5 | Caminar contra el goblin, saltar encima, usar el Dash (Q) a través de él | Nadie sale volando ni se queda atascado: atraviesas al goblin. |
-| 6 | Correr lejos | Te persigue hasta ~40 studs de su sitio; luego se da la vuelta, vuelve corriendo, los golpes le hacen "Esquiva" y al llegar recupera la vida. |
+| 6 | Pegarle y huir | Te sigue aunque salgas de sus 40 studs de detección: te persigue mientras estés a menos de 75 studs (y te recuerda 5 s más). Si se aleja más de 70 studs de su sitio, se da la vuelta, vuelve corriendo, los golpes le hacen "Esquiva" y al llegar recupera la vida. |
 | 7 | Entrar en la zona segura del pueblo | Deja de perseguirte y vuelve. No te puede golpear dentro. |
 | 8 | Pegar desde dentro de la zona segura | Sale "Zona segura" y no hace daño. |
 | 9 | Dos jugadores pegan al mismo goblin | Cada golpe resta vida una vez. La XP y el oro van **solo** para quien más daño le hizo. |

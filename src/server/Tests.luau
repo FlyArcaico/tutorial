@@ -190,11 +190,12 @@ function Tests.Run(modules)
 				return Config.MonsterSetting(def, key)
 			end
 			local reach = Config.MonsterReach(def, def.Size)
-			check(reach > 0 and reach < get("AggroRange"), monsterId .. ": alcance de golpe raro")
-			check(
-				get("AttackCooldown") > get("AttackWindup") + 0.15,
-				monsterId .. ": ataca más rápido de lo que golpea"
-			)
+			check(reach > 0 and reach < get("DetectionRange"), monsterId .. ": alcance de golpe raro")
+			check(get("ChaseRange") >= get("DetectionRange"), monsterId .. ": deja de perseguir antes de lo que ve")
+			check(get("TurnSpeed") > 0 and get("AttackWidth") > 0, monsterId .. ": giro o ancho de golpe inválidos")
+			local window = def.AttackHitWindow or { get("AttackWindup"), get("AttackWindup") }
+			check(window[1] <= window[2], monsterId .. ": la ventana del golpe está al revés")
+			check(get("AttackCooldown") > window[2] + 0.15, monsterId .. ": ataca más rápido de lo que golpea")
 			check(get("LeashRange") > get("WanderRadius") + 5, monsterId .. ": LeashRange demasiado pequeño")
 			check(get("RespawnTime") >= get("CorpseTime"), monsterId .. ": reaparece antes de desaparecer su cuerpo")
 			check(get("ChaseSpeed") > 0 and get("ReturnSpeed") > 0, monsterId .. ": velocidades inválidas")
