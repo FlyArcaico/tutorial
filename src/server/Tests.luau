@@ -54,6 +54,30 @@ function Tests.Run(modules)
 		check(skill.Ability == nil or Config.Abilities[skill.Ability] ~= nil, skillId .. ": habilidad desconocida")
 	end
 
+	-- Absorción: duraciones de la secuencia y probabilidades de conseguir habilidades
+	check(
+		Config.AbsorbDuration(true) > Config.AbsorbSequence.Approach,
+		"Absorber: la secuencia de éxito es demasiado corta"
+	)
+	check(
+		Config.AbsorbDuration(false) > Config.AbsorbSequence.Approach,
+		"Absorber: la secuencia de fallo es demasiado corta"
+	)
+	for _, tier in Config.AbsorbTiers do
+		check(type(tier.SkillBonus) == "number", tier.Name .. ": falta SkillBonus")
+	end
+	for skillId, skill in Config.Skills do
+		check(type(skill.AcquireChance) == "number", skillId .. ": falta AcquireChance")
+		for _, levels in { { 1, 9 }, { 1, 1 }, { 40, 1 } } do
+			local chance = Config.SkillAcquireChance(skillId, levels[1], levels[2], 0)
+			check(chance >= 0.05 and chance <= 1, skillId .. ": probabilidad fuera de rango")
+		end
+		check(
+			Config.SkillAcquireChance(skillId, 1, 1, 3) > Config.SkillAcquireChance(skillId, 1, 1, 0),
+			skillId .. ": los intentos fallidos deberían subir la probabilidad"
+		)
+	end
+
 	-- Monstruos
 	for monsterId in Config.Monsters do
 		check(modules.Monsters.HasBuilder(monsterId), monsterId .. ": no tiene diseño")

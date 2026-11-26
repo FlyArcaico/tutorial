@@ -38,6 +38,8 @@ local Remotes = {
 	Guard = make("RemoteEvent", "Guard"), -- cliente -> servidor: empezar/dejar de bloquear (F)
 	DevGold = make("RemoteEvent", "DevGold"), -- modo prueba: +500 / -500 de oro
 	Respawn = make("RemoteEvent", "Respawn"), -- cliente -> servidor: botón "Reaparecer" tras morir
+	AbsorbSequence = make("RemoteEvent", "AbsorbSequence"), -- servidor -> todos: el Slime empieza a absorber
+	SkillAcquired = make("RemoteEvent", "SkillAcquired"), -- servidor -> jugador: ha conseguido una habilidad
 }
 
 folder.Parent = ReplicatedStorage

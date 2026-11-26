@@ -67,6 +67,23 @@ Probado por el dueño en Studio: andar, correr, morir y reaparecer funcionan bie
 - [x] Cuerpo del Slime, colores de las evoluciones (incluido el morado) y animaciones de
       movimiento sin cambios.
 
+## Absorción del Slime (F) — secuencia nueva (hecha)
+
+- [x] La esencia ya no desaparece al pulsar F: se reserva y la mueve el servidor siguiendo
+      al slime (`Combat.animateEssence`), visible a través del cuerpo translúcido.
+- [x] Éxito: acercarse (el slime se gira y camina hacia ella, se ensancha y brilla) →
+      envolver (la parte de delante se estira y el cuerpo sube a su alrededor) → cerrar
+      (la lleva al centro) → digerir (late, brilla, chispas cian y una onda suave).
+- [x] Fallo: acercarse → forcejear (tiembla, no llega a cubrirla) → rebote hacia atrás
+      gracioso; la esencia sale despedida y se desvanece; aviso "¡ABSORCIÓN FALLIDA!".
+- [x] El resultado se decide en el servidor al empezar, con la probabilidad de siempre
+      (`Config.AbsorbChance`). Los premios se dan al terminar la animación.
+- [x] Conseguir la habilidad ya no es automático: tirada aparte
+      (`Config.SkillAcquireChance`: base de cada habilidad + nivel + Devorador/Única
+      + 10% por cada intento fallido). Aviso especial "《 Habilidad obtenida 》".
+- [x] Durante la secuencia no se puede atacar, usar habilidades ni moverse (tras acercarse).
+- Tiempos y probabilidades configurables en `Config.AbsorbSequence` y `Config.SkillAcquire`.
+
 ## Decisiones pendientes (preguntar al dueño)
 
 - Invocados: el juego tiene **Fuego / Agua / Planta**; el documento de diseño habla de **Hielo**.

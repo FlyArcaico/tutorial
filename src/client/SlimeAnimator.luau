@@ -8,6 +8,7 @@
 --   Morir: se derrite en un charco.
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
 local SlimeFace = require(script.Parent.SlimeFace)
 
@@ -164,6 +165,47 @@ function SlimeAnimator.PlayCast(character, kind)
 	end
 end
 
+-- Absorber: empieza la secuencia (la manda el servidor con el resultado ya decidido)
+function SlimeAnimator.PlayAbsorb(character, success, timing)
+	local state = find(character)
+	if state then
+		state.Absorb = { Start = os.clock(), Success = success, Timing = timing }
+	end
+end
+
+local function smoothStep(t)
+	t = math.clamp(t, 0, 1)
+	return t * t * (3 - 2 * t)
+end
+
+-- Onda suave en el suelo alrededor del slime (al terminar de absorber o al fallar)
+local function ring(state, color)
+	local root = state.Root
+	local part = Instance.new("Part")
+	part.Name = "AbsorbRing"
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Material = Enum.Material.Neon
+	part.Color = color
+	part.Transparency = 0.35
+	part.Shape = Enum.PartType.Cylinder
+	part.Size = Vector3.new(0.12, state.Size * 0.8, state.Size * 0.8)
+	local groundY = (root.CFrame * state.Center).Position.Y - state.Height * 0.5 + 0.08
+	part.CFrame = CFrame.new(root.Position.X, groundY, root.Position.Z) * CFrame.Angles(0, 0, math.rad(90))
+	part.Parent = workspace
+	local tween = TweenService:Create(part, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = Vector3.new(0.12, state.Size * 2.6, state.Size * 2.6),
+		Transparency = 1,
+	})
+	tween.Completed:Connect(function()
+		part:Destroy()
+	end)
+	tween:Play()
+end
+
 local function animate(state, dt, now)
 	local humanoid = state.Humanoid
 	local velocity = state.Root.AssemblyLinearVelocity
@@ -242,6 +284,99 @@ local function animate(state, dt, now)
 	sy += 0.08 * state.Cast
 	dy += d * 0.05 * state.Cast
 
+	-- Absorber: el cuerpo envuelve la esencia (éxito) o forcejea y rebota (fallo)
+	local absorbFace = nil
+	local sequence = state.Absorb
+	if sequence then
+		local s = sequence.Timing
+		local t = now - sequence.Start
+		if t < s.Approach then
+			-- Preparación: se acerca, se ensancha y baja un poco, y brilla por dentro
+			local k = smoothStep(t / s.Approach)
+			sx += 0.09 * k
+			sz += 0.09 * k
+			sy -= 0.08 * k
+			lean += math.rad(7) * k
+			state.Cast = math.max(state.Cast, 0.45 * k)
+			absorbFace = "Focused"
+		elseif sequence.Success then
+			local engulfEnd = s.Approach + s.Engulf
+			local closeEnd = engulfEnd + s.Close
+			local total = closeEnd + s.Digest
+			if t < engulfEnd then
+				-- Envolver: la parte de delante se estira hacia la esencia y el cuerpo sube
+				-- a su alrededor, como una gelatina que la va cubriendo
+				local k = smoothStep((t - s.Approach) / s.Engulf)
+				local jelly = math.sin(t * 14) * 0.03
+				sz += 0.09 + 0.55 * k + jelly
+				sx += 0.09 + 0.16 * k - jelly
+				sy += -0.08 + 0.26 * k
+				dz -= d * 0.3 * k
+				lean += math.rad(7) * (1 - k)
+				state.Cast = math.max(state.Cast, 0.45 + 0.3 * k)
+				absorbFace = "Happy"
+			elseif t < closeEnd then
+				-- Cerrar: se encoge a su alrededor y vuelve hacia su sitio
+				local k = smoothStep((t - engulfEnd) / s.Close)
+				sz += 0.64 * (1 - k) + 0.08
+				sx += 0.25 * (1 - k) + 0.05
+				sy += 0.18 * (1 - k)
+				dz -= d * 0.3 * (1 - k)
+				state.Cast = math.max(state.Cast, 0.75)
+				absorbFace = "Happy"
+			elseif t < total then
+				-- Digerir: late una vez, brilla y suelta chispas
+				local k = (t - closeEnd) / s.Digest
+				local pulse = math.sin(k * math.pi)
+				sx += 0.1 * pulse
+				sz += 0.1 * pulse
+				sy -= 0.07 * pulse
+				if not sequence.Sparkled then
+					sequence.Sparkled = true
+					state.Cast = 1
+					if state.Sparkles then
+						state.Sparkles:Emit(26)
+					end
+					ring(state, Color3.fromRGB(120, 230, 255))
+				end
+				absorbFace = "Happy"
+			else
+				state.Absorb = nil
+			end
+		else
+			local struggleEnd = s.Approach + s.Struggle
+			local total = struggleEnd + s.Recoil
+			if t < struggleEnd then
+				-- Forcejear: intenta envolverla pero no llega; tiembla mucho
+				local k = math.min(1, (t - s.Approach) / s.Struggle * 2)
+				local struggle = math.sin(t * 32) * 0.14
+				sz += 0.09 + 0.33 * k
+				sx += 0.09 + struggle
+				sy += -0.08 - struggle * 0.8
+				dz -= d * 0.15 * k
+				absorbFace = "Focused"
+			elseif t < total then
+				-- Rebotar: se aplasta, da un saltito hacia atrás y se tambalea (gracioso)
+				local k = (t - struggleEnd) / s.Recoil
+				local bounce = math.sin(k * math.pi)
+				sy -= 0.3 * bounce
+				sx += 0.22 * bounce + math.sin(t * 25) * 0.06 * (1 - k)
+				sz += 0.22 * bounce
+				dz += d * 0.32 * bounce
+				dy += d * 0.22 * bounce
+				lean -= math.rad(10) * bounce
+				if not sequence.Puffed then
+					sequence.Puffed = true
+					ring(state, Color3.fromRGB(200, 200, 210))
+				end
+				absorbFace = "Hurt"
+			else
+				state.Absorb = nil
+				state.SadUntil = now + 0.6 -- un momento triste después de fallar
+			end
+		end
+	end
+
 	-- Morir: se derrite en un charco
 	local melt = 0
 	if state.DeathStart then
@@ -288,7 +423,9 @@ local function animate(state, dt, now)
 		local idleSmile = state.Move < 0.2 and (now + state.Phase) % 9 < 1.4 -- de vez en cuando sonríe
 
 		local expression = "Normal"
-		if dead or (lowHealth and not busy) then
+		if absorbFace and not dead then
+			expression = absorbFace -- la secuencia de absorción manda
+		elseif dead or now < (state.SadUntil or 0) or (lowHealth and not busy) then
 			expression = "Sad"
 		elseif hurt then
 			expression = "Hurt"

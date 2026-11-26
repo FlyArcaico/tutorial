@@ -704,10 +704,11 @@ end
 -- Absorber
 --------------------------------------------------------------------------------
 
--- Absorbe esencias cerca del personaje. Con all = false, solo la más cercana;
--- con all = true (Habilidad Única), todas las que estén dentro del alcance.
--- Devuelve una lista de { Id = monsterId, Level = nivel } (vacía si no hay nada).
-function Monsters.TryAbsorb(character, range, all)
+-- Reserva esencias cerca del personaje para la secuencia de absorción (Combat las mueve
+-- y las destruye al terminar). Con all = false, solo la más cercana; con all = true
+-- (Habilidad Única), todas las que estén dentro del alcance.
+-- Devuelve una lista de { Orb = pieza, Id = monsterId, Level = nivel } (vacía si no hay nada).
+function Monsters.ReserveEssences(character, range, all)
 	local root = character:FindFirstChild("HumanoidRootPart")
 	if not root then
 		return {}
@@ -731,20 +732,18 @@ function Monsters.TryAbsorb(character, range, all)
 
 	local results = {}
 	for _, orb in picked do
-		table.insert(results, { Id = orb:GetAttribute("MonsterId"), Level = orb:GetAttribute("MonsterLevel") or 1 })
+		table.insert(results, {
+			Orb = orb,
+			Id = orb:GetAttribute("MonsterId"),
+			Level = orb:GetAttribute("MonsterLevel") or 1,
+		})
+		-- Ya no flota, no caduca y nadie más puede absorberla
 		essences[orb].Bob:Cancel()
 		essences[orb] = nil
-
-		-- Vuela hacia el slime y desaparece
-		local suck = TweenService:Create(
-			orb,
-			TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-			{ Position = root.Position, Size = Vector3.one * 0.2 }
-		)
-		suck.Completed:Connect(function()
-			orb:Destroy()
-		end)
-		suck:Play()
+		local label = orb:FindFirstChildOfClass("BillboardGui")
+		if label then
+			label:Destroy()
+		end
 	end
 	return results
 end

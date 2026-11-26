@@ -42,6 +42,9 @@ local function getState(player)
 			GuardBrokenUntil = 0,
 			GuardLocked = false, -- tras romperse, no se puede bloquear hasta recuperar un poco
 			LastGuard = 0,
+			-- Absorber (Slime)
+			AbsorbingStart = 0,
+			AbsorbingUntil = 0,
 		}
 		states[player] = state
 	end
@@ -348,7 +351,7 @@ local function onAttack(player)
 	if now - state.LastAttack < Config.AttackCooldown(weaponId) * 0.85 then
 		return
 	end
-	if state.Guarding or state.GuardBrokenUntil > now then
+	if state.Guarding or state.GuardBrokenUntil > now or state.AbsorbingUntil > now then
 		return -- no se puede pegar mientras bloqueas o estás aturdido
 	end
 	state.LastAttack = now
@@ -425,7 +428,7 @@ local function onCast(player, abilityId)
 
 	local state = getState(player)
 	local now = os.clock()
-	if now - (state.Cooldowns[abilityId] or 0) < ability.Cooldown then
+	if now - (state.Cooldowns[abilityId] or 0) < ability.Cooldown or state.AbsorbingUntil > now then
 		return
 	end
 	if state.Mana < ability.ManaCost then
@@ -455,6 +458,98 @@ local function onCast(player, abilityId)
 	end
 end
 
+--------------------------------------------------------------------------------
+-- Absorción del Slime: la esencia se mueve con el cuerpo del slime
+--------------------------------------------------------------------------------
+
+local function smoothStep(t)
+	t = math.clamp(t, 0, 1)
+	return t * t * (3 - 2 * t)
+end
+
+-- Mueve la esencia durante la secuencia (en el servidor, para que todos la vean igual).
+-- Las posiciones son relativas al slime, así la esencia lo sigue aunque se mueva.
+--   Éxito: se acerca -> queda pegada al cuerpo -> entra -> va al centro -> se disuelve.
+--   Fallo: se acerca -> tiembla resistiéndose -> sale rebotada y se desvanece.
+local function animateEssence(character, orb, success)
+	local root = character:FindFirstChild("HumanoidRootPart")
+	local body = character:FindFirstChild("SlimeBody")
+	if not root or not body or not orb.Parent then
+		orb:Destroy()
+		return
+	end
+
+	local s = Config.AbsorbSequence
+	local d = body:GetAttribute("Size") or 3
+	local center = body:GetAttribute("Center") or CFrame.new()
+	local startLocal = root.CFrame:PointToObjectSpace(orb.Position)
+	local front = (center * CFrame.new(0, d * 0.05, -(d * 0.5 + s.ApproachDistance))).Position
+	local inside = (center * CFrame.new(0, d * 0.05, -d * 0.22)).Position
+	local core = (center * CFrame.new(0, d * 0.05, 0)).Position
+	local startSize = orb.Size.X
+	local light = orb:FindFirstChildOfClass("PointLight")
+	local started = os.clock()
+	local total = Config.AbsorbDuration(success)
+
+	local connection
+	connection = RunService.Heartbeat:Connect(function()
+		local t = os.clock() - started
+		if not orb.Parent or not root.Parent or t >= total then
+			connection:Disconnect()
+			if orb.Parent then
+				orb:Destroy()
+			end
+			return
+		end
+
+		local position, size, transparency = front, startSize * 0.9, 0
+		if t < s.Approach then
+			position = startLocal:Lerp(front, smoothStep(t / s.Approach))
+			size = startSize * (1 - 0.1 * t / s.Approach)
+		elseif success then
+			local engulfEnd = s.Approach + s.Engulf
+			local closeEnd = engulfEnd + s.Close
+			if t < engulfEnd then
+				-- El cuerpo la va cubriendo: entra un poco y tiembla suave
+				local k = smoothStep((t - s.Approach) / s.Engulf)
+				position = front:Lerp(inside, k) + Vector3.new(0, math.sin(t * 12) * 0.05, 0)
+				size = startSize * (0.9 - 0.15 * k)
+			elseif t < closeEnd then
+				-- Se cierra a su alrededor y la lleva al centro
+				local k = smoothStep((t - engulfEnd) / s.Close)
+				position = inside:Lerp(core, k)
+				size = startSize * (0.75 - 0.25 * k)
+			else
+				-- Se disuelve dentro del slime
+				local k = (t - closeEnd) / s.Digest
+				position = core
+				size = startSize * 0.5 * (1 - k) + 0.05
+				transparency = k * 0.9
+			end
+		else
+			local struggleEnd = s.Approach + s.Struggle
+			if t < struggleEnd then
+				-- Se resiste: tiembla y late pegada al cuerpo
+				position = front + Vector3.new(math.sin(t * 40) * 0.2, math.cos(t * 33) * 0.15, 0)
+				size = startSize * (0.9 + 0.1 * math.sin(t * 25))
+			else
+				-- Sale rebotada hacia delante y se desvanece
+				local k = (t - struggleEnd) / s.Recoil
+				position = front + Vector3.new(0, math.sin(k * math.pi) * 1.5, -4 * (1 - (1 - k) ^ 2))
+				size = startSize * 0.9
+				transparency = k
+			end
+		end
+
+		orb.CFrame = root.CFrame * CFrame.new(position)
+		orb.Size = Vector3.one * size
+		orb.Transparency = transparency
+		if light then
+			light.Brightness = 1 - transparency
+		end
+	end)
+end
+
 local function onAbsorb(player)
 	local slot = PlayerData.Get(player)
 	local character = getAliveCharacter(player)
@@ -466,39 +561,67 @@ local function onAbsorb(player)
 		return
 	end
 
+	local state = getState(player)
+	local now = os.clock()
+	if state.AbsorbingUntil > now then
+		return -- ya está absorbiendo algo
+	end
+
 	-- Absorber -> Devorador -> Habilidad Única: más alcance, y la última absorbe todo lo cercano
 	local tier = Config.GetAbsorbTier(slot.Level)
-	local absorbed = Monsters.TryAbsorb(character, tier.Range, tier.AreaAbsorb)
-	if #absorbed == 0 then
+	local targets = Monsters.ReserveEssences(character, tier.Range, tier.AreaAbsorb)
+	if #targets == 0 then
 		notify(player, "No hay nada que absorber cerca", GREY)
 		return
 	end
 
-	Remotes.AttackFx:FireAllClients(character, "SlimeAbsorb")
-	local successes = 0
-	for _, essence in absorbed do
-		local chance = Config.AbsorbChance(slot.Level, essence.Level)
-		if math.random() <= chance then
-			successes += 1
-			PlayerData.Absorb(player, essence.Id, essence.Level)
-		else
-			PlayerData.AbsorbFailed(player, essence.Id, essence.Level, chance)
-		end
+	-- El resultado se decide en el servidor al empezar (con la probabilidad de siempre)
+	local anySuccess = false
+	for _, target in targets do
+		target.Chance = Config.AbsorbChance(slot.Level, target.Level)
+		target.Success = math.random() <= target.Chance
+		anySuccess = anySuccess or target.Success
+	end
+	local duration = Config.AbsorbDuration(anySuccess)
+	state.AbsorbingStart = now
+	state.AbsorbingUntil = now + duration
+	state.LastCombat = now
+
+	-- Todos ven la animación: el slime envuelve la esencia (o falla y rebota)
+	Remotes.AbsorbSequence:FireAllClients(character, targets[1].Orb, anySuccess, Config.AbsorbSequence)
+	for _, target in targets do
+		task.spawn(animateEssence, character, target.Orb, target.Success)
 	end
 
-	-- Devorador y la Habilidad Única te curan y te dan maná al absorber
-	if successes > 0 then
-		local _, humanoid = getAliveCharacter(player)
-		local state = getState(player)
-		if humanoid and tier.HealOnAbsorb > 0 then
-			humanoid.Health =
-				math.min(humanoid.MaxHealth, humanoid.Health + humanoid.MaxHealth * tier.HealOnAbsorb * successes)
+	-- Al terminar la animación, los premios
+	task.delay(duration, function()
+		state.AbsorbingUntil = 0
+		if PlayerData.Get(player) ~= slot then
+			return -- volvió al menú
 		end
-		if tier.ManaOnAbsorb > 0 then
-			local maxMana = Config.MaxMana(PlayerData.GetStats(player), slot.Race)
-			state.Mana = math.min(maxMana, state.Mana + maxMana * tier.ManaOnAbsorb * successes)
+		local successes = 0
+		for _, target in targets do
+			if target.Success then
+				successes += 1
+				PlayerData.Absorb(player, target.Id, target.Level)
+			else
+				PlayerData.AbsorbFailed(player, target.Id, target.Level, target.Chance)
+			end
 		end
-	end
+
+		-- Devorador y la Habilidad Única te curan y te dan maná al absorber
+		if successes > 0 then
+			local _, humanoid = getAliveCharacter(player)
+			if humanoid and tier.HealOnAbsorb > 0 then
+				humanoid.Health =
+					math.min(humanoid.MaxHealth, humanoid.Health + humanoid.MaxHealth * tier.HealOnAbsorb * successes)
+			end
+			if tier.ManaOnAbsorb > 0 then
+				local maxMana = Config.MaxMana(PlayerData.GetStats(player), slot.Race)
+				state.Mana = math.min(maxMana, state.Mana + maxMana * tier.ManaOnAbsorb * successes)
+			end
+		end
+	end)
 end
 
 --------------------------------------------------------------------------------
@@ -621,6 +744,10 @@ local function tick(player, dt, now)
 	end
 	if stunned then
 		speed *= 0.3
+	end
+	-- Absorbiendo: puede acercarse al principio; luego se queda quieto mientras envuelve
+	if state.AbsorbingUntil > now and now - state.AbsorbingStart > Config.AbsorbSequence.Approach then
+		speed = 0
 	end
 	if math.abs(humanoid.WalkSpeed - speed) > 0.01 then
 		humanoid.WalkSpeed = speed

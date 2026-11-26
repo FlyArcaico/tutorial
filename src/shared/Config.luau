@@ -485,6 +485,7 @@ Config.Skills = {
 		Description = "Pasiva: saltas mucho más alto",
 		From = "Bat",
 		Required = 1,
+		AcquireChance = 0.5, -- probabilidad base de conseguirla al absorber
 		JumpPower = 85,
 	},
 	SonicScreech = {
@@ -492,6 +493,7 @@ Config.Skills = {
 		Description = "Onda que daña y aturde a tu alrededor (E)",
 		From = "Bat",
 		Required = 5,
+		AcquireChance = 0.35, -- probabilidad base de conseguirla al absorber
 		Ability = "SonicScreech",
 	},
 	-- Lobo
@@ -500,6 +502,7 @@ Config.Skills = {
 		Description = "Embiste hacia delante (Q)",
 		From = "Wolf",
 		Required = 1,
+		AcquireChance = 0.5, -- probabilidad base de conseguirla al absorber
 		Cooldown = 2,
 		Speed = 90,
 		Duration = 0.25,
@@ -509,6 +512,7 @@ Config.Skills = {
 		Description = "Pasiva: +15% daño de tus golpes",
 		From = "Wolf",
 		Required = 5,
+		AcquireChance = 0.35, -- probabilidad base de conseguirla al absorber
 		DamageBonus = 0.15,
 	},
 	-- Gólem
@@ -517,6 +521,7 @@ Config.Skills = {
 		Description = "Pasiva: +50 de vida máxima",
 		From = "Golem",
 		Required = 1,
+		AcquireChance = 0.4, -- probabilidad base de conseguirla al absorber
 		BonusHealth = 50,
 	},
 	RockFist = {
@@ -524,6 +529,7 @@ Config.Skills = {
 		Description = "Golpe al suelo que hace mucho daño en área (R)",
 		From = "Golem",
 		Required = 5,
+		AcquireChance = 0.3, -- probabilidad base de conseguirla al absorber
 		Ability = "RockFist",
 	},
 }
@@ -543,6 +549,7 @@ Config.AbsorbTiers = {
 		StatMult = 1, -- multiplica los atributos que ganas al absorber
 		XPMult = 1,
 		HealOnAbsorb = 0,
+		SkillBonus = 0, -- extra de probabilidad de conseguir habilidades
 		ManaOnAbsorb = 0,
 		AreaAbsorb = false,
 	},
@@ -555,6 +562,7 @@ Config.AbsorbTiers = {
 		StatMult = 1.5,
 		XPMult = 1.25,
 		HealOnAbsorb = 0.1,
+		SkillBonus = 0.15,
 		ManaOnAbsorb = 0.1,
 		AreaAbsorb = false,
 	},
@@ -568,6 +576,7 @@ Config.AbsorbTiers = {
 		StatMult = 2,
 		XPMult = 1.5,
 		HealOnAbsorb = 0.2,
+		SkillBonus = 0.4,
 		ManaOnAbsorb = 0.2,
 		AreaAbsorb = true,
 	},
@@ -581,6 +590,44 @@ function Config.GetAbsorbTier(level)
 		end
 	end
 	return current
+end
+
+-- Secuencia de absorción (segundos). Éxito: acercarse -> envolver -> cerrar -> digerir.
+-- Fallo: acercarse -> forcejear -> rebotar hacia atrás.
+Config.AbsorbSequence = {
+	Approach = 0.5, -- el slime se acerca y se prepara (se ensancha y brilla un poco)
+	Engulf = 0.8, -- el cuerpo se estira y envuelve la esencia
+	Close = 0.4, -- se cierra a su alrededor y la lleva al centro
+	Digest = 0.35, -- vuelve a su forma y la esencia se disuelve dentro
+	Struggle = 0.7, -- (fallo) intenta envolverla pero la esencia se resiste
+	Recoil = 0.55, -- (fallo) rebota hacia atrás, gracioso
+	ApproachDistance = 0.9, -- distancia entre la superficie del slime y la esencia al empezar a envolver
+}
+
+function Config.AbsorbDuration(success)
+	local s = Config.AbsorbSequence
+	return if success then s.Approach + s.Engulf + s.Close + s.Digest else s.Approach + s.Struggle + s.Recoil
+end
+
+-- Conseguir la habilidad de un monstruo al absorberlo NO es automático:
+--   probabilidad = base de la habilidad + 5% por cada nivel que superas al monstruo
+--                  + bonus del nivel de absorción (Devorador / Habilidad Única)
+--                  + 10% por cada intento fallido anterior (así no hay rachas eternas de mala suerte)
+Config.SkillAcquire = {
+	LevelBonus = 0.05,
+	PityBonus = 0.1,
+	Min = 0.05,
+	Max = 1,
+}
+
+function Config.SkillAcquireChance(skillId, playerLevel, monsterLevel, failedTries)
+	local skill = Config.Skills[skillId]
+	local rules = Config.SkillAcquire
+	local chance = (skill.AcquireChance or 0.4)
+		+ (playerLevel - monsterLevel) * rules.LevelBonus
+		+ Config.GetAbsorbTier(playerLevel).SkillBonus
+		+ (failedTries or 0) * rules.PityBonus
+	return math.clamp(chance, rules.Min, rules.Max)
 end
 
 --------------------------------------------------------------------------------

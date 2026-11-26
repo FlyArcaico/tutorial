@@ -20,6 +20,7 @@ local devLevelRemote = remotes:WaitForChild("DevLevel")
 local devGoldRemote = remotes:WaitForChild("DevGold")
 local guardRemote = remotes:WaitForChild("Guard")
 local respawnRemote = remotes:WaitForChild("Respawn")
+local skillAcquiredRemote = remotes:WaitForChild("SkillAcquired")
 
 local player = Players.LocalPlayer
 local Colors = UI.Colors
@@ -1087,6 +1088,66 @@ local function showMessages()
 	end
 	showingMessages = false
 end
+
+-- Aviso especial al conseguir una habilidad absorbiendo (ventana en el centro)
+local skillPopup = create("CanvasGroup", {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromScale(0.5, 0.3),
+	Size = UDim2.fromOffset(420, 110),
+	GroupTransparency = 1,
+	Visible = false,
+	ZIndex = 15,
+}, gui)
+UI.theme(skillPopup, 14, Colors.Accent)
+UI.label(skillPopup, {
+	Position = UDim2.fromOffset(0, 10),
+	Size = UDim2.new(1, 0, 0, 22),
+	Font = UI.Fonts.Title,
+	TextSize = 18,
+	TextColor3 = Colors.Gold,
+	Text = "《 Habilidad obtenida 》",
+})
+local skillPopupName = UI.label(skillPopup, {
+	Position = UDim2.fromOffset(0, 36),
+	Size = UDim2.new(1, 0, 0, 34),
+	Font = Enum.Font.GothamBlack,
+	TextSize = 28,
+	TextColor3 = Color3.fromRGB(150, 235, 255),
+	TextStrokeTransparency = 0.5,
+	Text = "",
+})
+local skillPopupText = UI.label(skillPopup, {
+	Position = UDim2.fromOffset(16, 72),
+	Size = UDim2.new(1, -32, 0, 30),
+	TextSize = 14,
+	TextColor3 = Colors.Muted,
+	Text = "",
+})
+
+local popupToken = 0
+skillAcquiredRemote.OnClientEvent:Connect(function(skillId)
+	local skill = Config.Skills[skillId]
+	if not skill then
+		return
+	end
+	popupToken += 1
+	local token = popupToken
+	skillPopupName.Text = skill.DisplayName
+	skillPopupText.Text = skill.Description
+	skillPopup.Visible = true
+	TweenService:Create(skillPopup, TweenInfo.new(0.25), { GroupTransparency = 0 }):Play()
+	task.delay(3, function()
+		if token == popupToken then
+			local fade = TweenService:Create(skillPopup, TweenInfo.new(0.5), { GroupTransparency = 1 })
+			fade.Completed:Connect(function()
+				if token == popupToken then
+					skillPopup.Visible = false
+				end
+			end)
+			fade:Play()
+		end
+	end)
+end)
 
 notifyRemote.OnClientEvent:Connect(function(text, color)
 	if player:GetAttribute("SettingMessages") == false then

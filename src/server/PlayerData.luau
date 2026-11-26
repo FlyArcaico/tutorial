@@ -25,6 +25,7 @@ local function newSlot()
 		Inventory = {}, -- [itemId] = cantidad
 		StatPoints = {}, -- [statId] = puntos libres repartidos
 		Weapons = {}, -- [weaponId] = true (armas compradas)
+		SkillTries = {}, -- [skillId] = intentos fallidos de conseguir esa habilidad al absorber
 		-- Equipped = weaponId (arma equipada, o nil)
 	}
 end
@@ -1005,22 +1006,32 @@ function PlayerData.Absorb(player, monsterId, level)
 	local tier = Config.GetAbsorbTier(slot.Level)
 	local xp = math.floor(Config.MonsterStats(monsterId, level).XP * tier.XPMult)
 
-	-- Habilidades de este monstruo que se desbloquean al llegar a X absorbidos
-	local learned = false
+	-- Habilidades de este monstruo: hay que llegar a X absorbidos (Required) y además
+	-- superar una tirada (Config.SkillAcquireChance). Cada fallo sube la probabilidad.
+	slot.SkillTries = slot.SkillTries or {}
+	local learned, tried = false, false
 	for _, skillId in Config.SkillOrder do
 		local skill = Config.Skills[skillId]
 		if skill.From == monsterId and count >= skill.Required and not slot.Skills[skillId] then
-			slot.Skills[skillId] = true
-			learned = true
-			notify(player, "¡Habilidad robada: " .. skill.DisplayName .. "! " .. skill.Description, CYAN)
+			tried = true
+			local chance = Config.SkillAcquireChance(skillId, slot.Level, level, slot.SkillTries[skillId])
+			if math.random() <= chance then
+				slot.Skills[skillId] = true
+				slot.SkillTries[skillId] = nil
+				learned = true
+				notify(player, "¡Habilidad obtenida: " .. skill.DisplayName .. "! " .. skill.Description, CYAN)
+				Remotes.SkillAcquired:FireClient(player, skillId)
+			else
+				slot.SkillTries[skillId] = (slot.SkillTries[skillId] or 0) + 1
+			end
 		end
 	end
 	if not learned then
-		notify(
-			player,
-			"Absorbiste " .. def.DisplayName .. " Nv. " .. level .. " (" .. count .. ")  +" .. xp .. " XP",
-			WHITE
-		)
+		local text = "Absorbiste " .. def.DisplayName .. " Nv. " .. level .. "  +" .. xp .. " XP"
+		if tried then
+			text ..= "  ·  No obtuviste su habilidad"
+		end
+		notify(player, text, WHITE)
 	end
 
 	PlayerData.AddXP(player, xp)
@@ -1326,7 +1337,7 @@ function PlayerData.AbsorbFailed(player, monsterId, level, chance)
 	local xp = math.floor(Config.MonsterStats(monsterId, level).XP * 0.3)
 	notify(
 		player,
-		"La absorción falló (" .. math.floor(chance * 100) .. "% de probabilidad)  +" .. xp .. " XP",
+		"¡ABSORCIÓN FALLIDA! (" .. math.floor(chance * 100) .. "% de probabilidad)  +" .. xp .. " XP",
 		Color3.fromRGB(255, 140, 140)
 	)
 	PlayerData.AddXP(player, xp)
