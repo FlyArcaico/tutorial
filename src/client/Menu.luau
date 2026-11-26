@@ -40,15 +40,54 @@ local gui = create("ScreenGui", {
 	Enabled = false,
 }, player:WaitForChild("PlayerGui"))
 
+-- Fondo: se ve el pueblo detrás (la cámara gira), con una viñeta azul oscura arriba y abajo
 local background = create("Frame", {
 	Size = UDim2.fromScale(1, 1),
 	BackgroundColor3 = Colors.White,
-	BackgroundTransparency = 0.15,
+	BackgroundTransparency = 0,
 }, gui)
 create("UIGradient", {
-	Color = ColorSequence.new(Color3.fromRGB(20, 55, 110), Color3.fromRGB(4, 8, 22)),
+	Color = ColorSequence.new(Color3.fromRGB(10, 30, 70), Color3.fromRGB(2, 6, 18)),
+	Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.15),
+		NumberSequenceKeypoint.new(0.45, 0.65),
+		NumberSequenceKeypoint.new(1, 0.1),
+	}),
 	Rotation = 90,
 }, background)
+
+-- Partículas mágicas que suben despacio por la pantalla
+local particles = {}
+for index = 1, 34 do
+	local size = math.random(3, 8)
+	local dot = create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(math.random(), math.random()),
+		Size = UDim2.fromOffset(size, size),
+		BackgroundColor3 = if index % 5 == 0 then Colors.Gold else Colors.Accent,
+		BackgroundTransparency = 0.35,
+		BorderSizePixel = 0,
+	}, background)
+	UI.round(dot, size)
+	table.insert(particles, {
+		Frame = dot,
+		X = math.random(),
+		Y = math.random(),
+		Speed = 0.015 + math.random() * 0.03,
+		Sway = math.random() * 6,
+	})
+end
+
+-- Versión, abajo a la izquierda
+UI.label(gui, {
+	AnchorPoint = Vector2.new(0, 1),
+	Position = UDim2.new(0, 16, 1, -10),
+	Size = UDim2.fromOffset(300, 18),
+	TextSize = 13,
+	TextColor3 = Colors.Muted,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	Text = "Slime Rebirth · Alpha 0.9",
+})
 
 local toastLabel = UI.label(gui, {
 	AnchorPoint = Vector2.new(0.5, 1),
@@ -86,31 +125,51 @@ local mainScreen = create("Frame", {
 	BackgroundTransparency = 1,
 }, gui)
 
+-- Título con degradado cian -> blanco -> dorado y brillo
+local title = UI.label(mainScreen, {
+	AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.fromScale(0.5, 0.05),
+	Size = UDim2.new(0.9, 0, 0, 70),
+	Font = UI.Fonts.Title,
+	TextSize = 68,
+	TextColor3 = Colors.White,
+	Text = Config.GameName,
+})
+create("UIGradient", {
+	Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Colors.Accent),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(235, 250, 255)),
+		ColorSequenceKeypoint.new(1, Colors.Gold),
+	}),
+	Rotation = 0,
+}, title)
+create("UIStroke", { Color = Color3.fromRGB(10, 50, 110), Thickness = 3, Transparency = 0.1 }, title)
+
 UI.label(mainScreen, {
 	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.fromScale(0.5, 0.07),
-	Size = UDim2.new(0.9, 0, 0, 56),
+	Position = UDim2.new(0.5, 0, 0.05, 72),
+	Size = UDim2.new(0.9, 0, 0, 22),
+	TextSize = 18,
 	Font = UI.Fonts.Title,
-	TextSize = 54,
-	TextColor3 = Colors.Accent,
-	TextStrokeColor3 = Color3.fromRGB(10, 60, 120),
-	TextStrokeTransparency = 0,
-	Text = Config.GameName,
+	TextColor3 = Color3.fromRGB(200, 225, 255),
+	TextStrokeTransparency = 0.5,
+	Text = "~ Una nueva vida en otro mundo ~",
 })
 
 UI.label(mainScreen, {
 	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0.07, 60),
+	Position = UDim2.new(0.5, 0, 0.05, 104),
 	Size = UDim2.new(0.9, 0, 0, 24),
-	TextSize = 18,
+	TextSize = 20,
 	Font = UI.Fonts.Title,
 	TextColor3 = Colors.Gold,
-	Text = "◆ Elige un slot ◆",
+	TextStrokeTransparency = 0.5,
+	Text = "◆ Elige tu destino ◆",
 })
 
 local slotsRow = create("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.fromScale(0.5, 0.58),
+	Position = UDim2.fromScale(0.5, 0.62),
 	Size = UDim2.fromScale(0.95, 0.6),
 	BackgroundTransparency = 1,
 }, mainScreen)
@@ -435,35 +494,62 @@ end
 
 local openSlot -- se define más abajo
 
+local ROMAN = { "I", "II", "III" }
+local cardPreviews = {} -- modelos 3D de las tarjetas (giran despacio)
+
+-- Personaje 3D dentro de una tarjeta
+local function cardViewport(card, raceId, silhouette)
+	local cardView = create("ViewportFrame", {
+		Position = UDim2.fromOffset(0, 30),
+		Size = UDim2.new(1, 0, 0, 150),
+		BackgroundColor3 = Color3.fromRGB(4, 10, 26),
+		BackgroundTransparency = 0.3,
+		Ambient = if silhouette then Color3.new() else Color3.fromRGB(170, 180, 200),
+		LightColor = if silhouette then Color3.new() else Color3.new(1, 1, 1),
+	}, card)
+	UI.round(cardView, 10)
+	local camera = Instance.new("Camera")
+	camera.FieldOfView = 35
+	camera.CFrame = RacePreview.CameraCFrame
+	camera.Parent = cardView
+	cardView.CurrentCamera = camera
+	local model = RacePreview.Build(raceId)
+	model.Parent = cardView
+	table.insert(cardPreviews, model)
+	return cardView
+end
+
 local function buildSlotCard(summary)
 	local card = create("Frame", {
 		Size = UDim2.fromScale(0.3, 1),
-		BackgroundColor3 = if summary.Locked then Color3.fromRGB(24, 25, 38) else Colors.Panel,
 		LayoutOrder = summary.Index,
 	}, slotsRow)
-	create("UISizeConstraint", { MaxSize = Vector2.new(240, 300) }, card)
+	create("UISizeConstraint", { MaxSize = Vector2.new(250, 370) }, card)
 	local stroke = UI.theme(card, 14, Colors.PanelLight)
 	if summary.Locked then
 		card.BackgroundTransparency = 0.35
 	end
-	UI.padding(card, 14)
+	UI.padding(card, 12)
 
 	UI.label(card, {
-		Size = UDim2.new(1, 0, 0, 26),
-		Font = Enum.Font.GothamBold,
+		Size = UDim2.new(1, 0, 0, 24),
+		Font = UI.Fonts.Title,
 		TextSize = 20,
-		Text = "Slot " .. summary.Index,
+		TextColor3 = Colors.Gold,
+		Text = "◆ Slot " .. (ROMAN[summary.Index] or summary.Index) .. " ◆",
 	})
 
 	if summary.Locked then
+		-- Silueta oscura de un personaje con un candado delante
+		cardViewport(card, Config.DefaultRace, true)
 		UI.label(card, {
-			Position = UDim2.fromScale(0, 0.22),
-			Size = UDim2.new(1, 0, 0, 60),
-			TextSize = 46,
+			Position = UDim2.fromOffset(0, 80),
+			Size = UDim2.new(1, 0, 0, 50),
+			TextSize = 40,
 			Text = "🔒",
 		})
 		UI.label(card, {
-			Position = UDim2.fromScale(0, 0.55),
+			Position = UDim2.fromOffset(0, 190),
 			Size = UDim2.new(1, 0, 0, 24),
 			Font = Enum.Font.GothamBold,
 			TextSize = 18,
@@ -471,7 +557,7 @@ local function buildSlotCard(summary)
 			Text = "Bloqueado",
 		})
 		UI.label(card, {
-			Position = UDim2.new(0, 0, 0.55, 28),
+			Position = UDim2.fromOffset(0, 216),
 			Size = UDim2.new(1, 0, 0, 40),
 			TextSize = 15,
 			TextColor3 = Colors.Muted,
@@ -483,20 +569,22 @@ local function buildSlotCard(summary)
 	local race = Config.Races[summary.Race]
 	local rarity = Config.Rarities[race.Rarity]
 	stroke.Color = rarity.Color
+	cardViewport(card, summary.Race, false)
 
 	UI.label(card, {
-		Position = UDim2.fromOffset(0, 40),
-		Size = UDim2.new(1, 0, 0, 32),
+		Position = UDim2.fromOffset(0, 184),
+		Size = UDim2.new(1, 0, 0, 28),
 		Font = Enum.Font.GothamBlack,
-		TextSize = 26,
+		TextSize = 24,
 		TextColor3 = rarity.Color,
+		TextStrokeTransparency = 0.6,
 		Text = race.Name,
 	})
 	UI.label(card, {
-		Position = UDim2.fromOffset(0, 72),
-		Size = UDim2.new(1, 0, 0, 20),
+		Position = UDim2.fromOffset(0, 212),
+		Size = UDim2.new(1, 0, 0, 18),
 		Font = Enum.Font.GothamBold,
-		TextSize = 14,
+		TextSize = 13,
 		TextColor3 = rarity.Color,
 		Text = if race.SubtypeOf
 			then rarity.Name .. " · Subtipo de " .. Config.Races[race.SubtypeOf].Name
@@ -504,28 +592,63 @@ local function buildSlotCard(summary)
 			else rarity.Name,
 	})
 	UI.label(card, {
-		Position = UDim2.fromOffset(0, 100),
-		Size = UDim2.new(1, 0, 0, 22),
-		TextSize = 17,
-		Text = "Nivel " .. summary.Level,
+		Position = UDim2.fromOffset(0, 234),
+		Size = UDim2.new(1, 0, 0, 20),
+		TextSize = 15,
+		RichText = true,
+		Text = string.format(
+			'Nivel <b>%d</b>   <font color="#%s">💰 %d</font>',
+			summary.Level,
+			Colors.Gold:ToHex(),
+			summary.Gold or 0
+		),
 	})
 	UI.label(card, {
-		Position = UDim2.fromOffset(0, 124),
-		Size = UDim2.new(1, 0, 0, 20),
-		TextSize = 14,
+		Position = UDim2.fromOffset(0, 256),
+		Size = UDim2.new(1, 0, 0, 18),
+		TextSize = 13,
 		TextColor3 = Colors.Muted,
-		Text = "Spins: " .. summary.Spins .. "   ·   Oro: " .. (summary.Gold or 0),
+		Text = "Spins: " .. summary.Spins,
 	})
 
 	local enterButton = UI.button(card, "Entrar", Colors.Green, {
 		AnchorPoint = Vector2.new(0, 1),
 		Position = UDim2.fromScale(0, 1),
-		Size = UDim2.new(1, 0, 0, 44),
+		Size = UDim2.new(1, 0, 0, 42),
 	})
 	enterButton.Activated:Connect(function()
 		openSlot(summary.Index)
 	end)
 end
+
+-- Cámara girando sobre el pueblo, partículas y personajes de las tarjetas
+RunService.RenderStepped:Connect(function(dt)
+	if not gui.Enabled then
+		return
+	end
+	local now = os.clock()
+	local center = Config.SafeZone.Center
+	local angle = now * 0.06
+	Workspace.CurrentCamera.CFrame = CFrame.lookAt(
+		center + Vector3.new(math.cos(angle) * 78, 34, math.sin(angle) * 78),
+		center + Vector3.new(0, 6, 0)
+	)
+
+	for _, particle in particles do
+		particle.Y -= particle.Speed * dt
+		if particle.Y < -0.05 then
+			particle.Y = 1.05
+			particle.X = math.random()
+		end
+		particle.Frame.Position = UDim2.fromScale(particle.X + math.sin(now + particle.Sway) * 0.01, particle.Y)
+	end
+
+	for _, model in cardPreviews do
+		if model.Parent then
+			model:PivotTo(CFrame.Angles(0, math.sin(now * 0.9) * 0.6, 0))
+		end
+	end
+end)
 
 local function showMainScreen()
 	slotScreen.Visible = false
@@ -537,6 +660,7 @@ local function showMainScreen()
 			child:Destroy()
 		end
 	end
+	table.clear(cardPreviews)
 
 	task.spawn(function()
 		local ok, data = pcall(getMenuRemote.InvokeServer, getMenuRemote)
@@ -702,8 +826,7 @@ end
 
 function Menu.Open()
 	local camera = Workspace.CurrentCamera
-	camera.CameraType = Enum.CameraType.Scriptable
-	camera.CFrame = CFrame.lookAt(Vector3.new(60, 35, 40), Vector3.new(0, 0, -120))
+	camera.CameraType = Enum.CameraType.Scriptable -- la mueve el RenderStepped de arriba
 
 	gui.Enabled = true
 	showMainScreen()

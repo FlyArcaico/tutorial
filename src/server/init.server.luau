@@ -67,6 +67,11 @@ Remotes.SaveSetting.OnServerEvent:Connect(function(player, settingId, enabled)
 	PlayerData.SaveSetting(player, settingId, enabled)
 end)
 
+-- Modo prueba: +500 / -500 de oro
+Remotes.DevGold.OnServerEvent:Connect(function(player, delta)
+	PlayerData.DevChangeGold(player, delta)
+end)
+
 -- Modo prueba: +5 / -5 niveles
 Remotes.DevLevel.OnServerEvent:Connect(function(player, delta)
 	PlayerData.DevChangeLevel(player, delta)

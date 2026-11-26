@@ -175,7 +175,7 @@ end
 local function addPrompt(torso, shopId, shop)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "ShopPrompt"
-	prompt.ActionText = "Comprar"
+	prompt.ActionText = "Shop"
 	prompt.ObjectText = shop.Npc
 	prompt.KeyboardKeyCode = Enum.KeyCode.T
 	prompt.MaxActivationDistance = Config.ShopTalkDistance

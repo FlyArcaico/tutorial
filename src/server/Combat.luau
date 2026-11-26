@@ -35,6 +35,13 @@ local function getState(player)
 			LastSprint = 0,
 			PoseBase = nil, -- posición original de las articulaciones (para la postura de carrera)
 			PoseCharacter = nil,
+			-- Bloquear
+			Guard = Config.Guard.Max,
+			WantGuard = false, -- el jugador mantiene F
+			Guarding = false,
+			GuardBrokenUntil = 0,
+			GuardLocked = false, -- tras romperse, no se puede bloquear hasta recuperar un poco
+			LastGuard = 0,
 		}
 		states[player] = state
 	end
@@ -341,6 +348,9 @@ local function onAttack(player)
 	if now - state.LastAttack < Config.AttackCooldown(weaponId) * 0.85 then
 		return
 	end
+	if state.Guarding or state.GuardBrokenUntil > now then
+		return -- no se puede pegar mientras bloqueas o estás aturdido
+	end
 	state.LastAttack = now
 	state.LastCombat = now
 	state.Hits = (state.Hits or 0) + 1
@@ -394,7 +404,10 @@ local function onAttack(player)
 		)
 	end
 
-	playAttackEffect(root, color, body.Size, range)
+	-- Solo el Invocado lanza energía con el clic; los demás golpean con el puño o el arma
+	if race.Element then
+		playAttackEffect(root, color, body.Size, range)
+	end
 	-- Todos los jugadores ven la animación de ataque de este personaje
 	Remotes.AttackFx:FireAllClients(character, style, color)
 end
@@ -503,45 +516,7 @@ local function setBerserkVisual(character, enabled)
 	end
 end
 
--- Postura de carrera (R6): se inclina hacia delante y echa los brazos atrás.
--- Se hace en el servidor para que todos los jugadores la vean.
-local POSE_TWEEN = TweenInfo.new(0.2, Enum.EasingStyle.Quad)
-local RUN_POSE = {
-	RootJoint = CFrame.Angles(math.rad(-18), 0, 0), -- inclinarse
-	Neck = CFrame.Angles(math.rad(12), 0, 0), -- mirar al frente
-	RightShoulder = CFrame.Angles(math.rad(-45), 0, 0), -- brazos atrás
-	LeftShoulder = CFrame.Angles(math.rad(-45), 0, 0),
-}
-
-local function setRunPose(state, character, running)
-	local torso = character:FindFirstChild("Torso")
-	local root = character:FindFirstChild("HumanoidRootPart")
-	if not torso or not root then
-		return
-	end
-	local joints = {
-		RootJoint = root:FindFirstChild("RootJoint"),
-		Neck = torso:FindFirstChild("Neck"),
-		RightShoulder = torso:FindFirstChild("Right Shoulder"),
-		LeftShoulder = torso:FindFirstChild("Left Shoulder"),
-	}
-	-- Guardar la postura original la primera vez (después de escalar al Ogre)
-	if state.PoseCharacter ~= character then
-		state.PoseCharacter = character
-		state.PoseBase = {}
-		for name, joint in joints do
-			state.PoseBase[name] = joint.C0
-		end
-	end
-
-	for name, joint in joints do
-		local base = state.PoseBase[name]
-		if base then
-			local goal = if running then CFrame.new(base.Position) * RUN_POSE[name] * base.Rotation else base
-			TweenService:Create(joint, POSE_TWEEN, { C0 = goal }):Play()
-		end
-	end
-end
+-- (La postura de correr ahora la anima el cliente, en Animator.luau)
 
 local function tick(player, dt, now)
 	local slot = PlayerData.Get(player)
@@ -609,10 +584,23 @@ local function tick(player, dt, now)
 	end
 	if sprinting ~= state.Sprinting then
 		state.Sprinting = sprinting
-		if not race.CanAbsorb then
-			setRunPose(state, character, sprinting)
-		end
 	end
+
+	-- Bloquear: mantener F (no el Slime). La barra se gasta al recibir golpes.
+	local hasSword = slot.Equipped ~= nil and not race.CanAbsorb
+	local maxGuard = Config.Guard.Max + (if hasSword then Config.Guard.SwordBonus else 0)
+	local stunned = state.GuardBrokenUntil > now
+	local guarding = state.WantGuard and not race.CanAbsorb and not stunned and not state.GuardLocked
+	if guarding then
+		state.LastGuard = now
+	elseif now - state.LastGuard >= Config.Guard.RegenDelay then
+		state.Guard = math.min(maxGuard, state.Guard + Config.Guard.RegenPerSecond * dt)
+	end
+	state.Guard = math.min(state.Guard, maxGuard)
+	if state.GuardLocked and state.Guard >= maxGuard * Config.Guard.RecoverFraction then
+		state.GuardLocked = false
+	end
+	state.Guarding = guarding
 
 	-- Velocidad
 	local speed = Config.WalkSpeed(stats, slot.Race)
@@ -624,6 +612,12 @@ local function tick(player, dt, now)
 	end
 	if overloaded then
 		speed *= Config.Overload.SpeedMult
+	end
+	if guarding then
+		speed *= Config.Guard.SpeedMult
+	end
+	if stunned then
+		speed *= 0.3
 	end
 	if math.abs(humanoid.WalkSpeed - speed) > 0.01 then
 		humanoid.WalkSpeed = speed
@@ -641,6 +635,45 @@ local function tick(player, dt, now)
 	player:SetAttribute("Sprinting", sprinting)
 	player:SetAttribute("Exhausted", state.Exhausted)
 	player:SetAttribute("InSafeZone", inSafeZone)
+	player:SetAttribute("Guard", math.floor(state.Guard))
+	player:SetAttribute("MaxGuard", maxGuard)
+	player:SetAttribute("Guarding", guarding)
+	player:SetAttribute("GuardBroken", stunned or state.GuardLocked)
+end
+
+-- Daño de los monstruos a un jugador: resistencias y bloqueo
+function Combat.DamagePlayer(character, damage, isMagic)
+	local player = Players:GetPlayerFromCharacter(character)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then
+		return
+	end
+	local slot = player and PlayerData.Get(player)
+	if not slot then
+		humanoid:TakeDamage(damage)
+		return
+	end
+
+	local stats = PlayerData.GetStats(player)
+	local resist = if isMagic then Config.MagicResist(stats, slot.Race) else Config.PhysicalResist(stats, slot.Race)
+	damage *= 1 - resist
+
+	local state = getState(player)
+	state.LastCombat = os.clock()
+	if state.Guarding then
+		-- Bloqueado: no hace daño, pero gasta la barra de bloqueo
+		state.Guard -= damage
+		state.LastGuard = os.clock()
+		if state.Guard <= 0 then
+			state.Guard = 0
+			state.Guarding = false
+			state.GuardLocked = true
+			state.GuardBrokenUntil = os.clock() + Config.Guard.BreakStun
+			notify(player, "¡Bloqueo roto! Estás aturdido", Color3.fromRGB(255, 120, 90))
+		end
+		return
+	end
+	humanoid:TakeDamage(damage)
 end
 
 local function onCharacterAdded(player, character)
@@ -653,6 +686,11 @@ local function onCharacterAdded(player, character)
 	state.WantSprint = false
 	state.Exhausted = false
 	state.PoseCharacter = nil
+	state.WantGuard = false
+	state.Guarding = false
+	state.GuardLocked = false
+	state.GuardBrokenUntil = 0
+	state.Guard = Config.Guard.Max
 
 	-- Empezar con el maná y la stamina llenos
 	local slot = PlayerData.Get(player)
@@ -731,6 +769,10 @@ function Combat.Start()
 	Remotes.Sprint.OnServerEvent:Connect(function(player, wantsToSprint)
 		getState(player).WantSprint = wantsToSprint == true
 	end)
+	Remotes.Guard.OnServerEvent:Connect(function(player, wantsToGuard)
+		getState(player).WantGuard = wantsToGuard == true
+	end)
+	Monsters.SetPlayerDamageHandler(Combat.DamagePlayer)
 
 	local function onPlayerAdded(player)
 		player.CharacterAdded:Connect(function(character)

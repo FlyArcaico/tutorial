@@ -35,6 +35,8 @@ local Remotes = {
 	BuyWeapon = make("RemoteFunction", "BuyWeapon"), -- comprar un arma en la Herrería
 	Equip = make("RemoteFunction", "Equip"), -- equipar / quitar un arma
 	AttackFx = make("RemoteEvent", "AttackFx"), -- servidor -> todos: animación de ataque de un personaje
+	Guard = make("RemoteEvent", "Guard"), -- cliente -> servidor: empezar/dejar de bloquear (F)
+	DevGold = make("RemoteEvent", "DevGold"), -- modo prueba: +500 / -500 de oro
 }
 
 folder.Parent = ReplicatedStorage

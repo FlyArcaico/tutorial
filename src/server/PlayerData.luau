@@ -1215,6 +1215,16 @@ end
 -- Modo prueba: subir o bajar niveles
 --------------------------------------------------------------------------------
 
+function PlayerData.DevChangeGold(player, delta)
+	local slot = PlayerData.Get(player)
+	if not slot or not isTester(player) or (delta ~= 500 and delta ~= -500) then
+		return
+	end
+	slot.Gold = math.max(0, slot.Gold + delta)
+	updateAttributes(player, slot)
+	notify(player, "Modo prueba: " .. slot.Gold .. " oro", PURPLE)
+end
+
 function PlayerData.DevChangeLevel(player, delta)
 	local slot = PlayerData.Get(player)
 	if not slot or not isTester(player) or (delta ~= 5 and delta ~= -5) then

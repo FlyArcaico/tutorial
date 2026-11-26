@@ -27,6 +27,12 @@ function Monsters.SetKillHandler(handler)
 	killHandler = handler
 end
 
+-- function(character, damage, isMagic): la usa Combat para resistencias y bloqueo
+local playerDamageHandler = nil
+function Monsters.SetPlayerDamageHandler(handler)
+	playerDamageHandler = handler
+end
+
 local function randomPointInZone(zone)
 	local angle = rng:NextNumber(0, math.pi * 2)
 	local distance = math.sqrt(rng:NextNumber()) * zone.Radius
@@ -499,11 +505,12 @@ local function updateMonster(state, now)
 		local reach = math.max(state.Size.X, state.Size.Z) / 2 + 3.5
 		if distance <= reach + state.Def.HipHeight and now - state.LastAttack >= 1.2 then
 			state.LastAttack = now
-			-- PlayerData pone las resistencias en el personaje según su raza
-			local resist = if state.Def.Magic
-				then target:GetAttribute("MagicResist")
-				else target:GetAttribute("PhysicalResist")
-			target.Humanoid:TakeDamage(state.Stats.Damage * (1 - (resist or 0)))
+			if playerDamageHandler then
+				-- Combat aplica resistencias y el bloqueo (Guard)
+				playerDamageHandler(target, state.Stats.Damage, state.Def.Magic == true)
+			else
+				target.Humanoid:TakeDamage(state.Stats.Damage)
+			end
 		end
 	elseif awayFromHome then
 		humanoid:MoveTo(zone.Center)

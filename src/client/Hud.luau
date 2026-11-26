@@ -17,6 +17,8 @@ local castRemote = remotes:WaitForChild("Cast")
 local notifyRemote = remotes:WaitForChild("Notify")
 local sprintRemote = remotes:WaitForChild("Sprint")
 local devLevelRemote = remotes:WaitForChild("DevLevel")
+local devGoldRemote = remotes:WaitForChild("DevGold")
+local guardRemote = remotes:WaitForChild("Guard")
 
 local player = Players.LocalPlayer
 local Colors = UI.Colors
@@ -74,7 +76,7 @@ end
 
 local card, cardStroke = panel(gui, {
 	Position = UDim2.fromOffset(16, 16),
-	Size = UDim2.fromOffset(300, 148),
+	Size = UDim2.fromOffset(300, 164),
 })
 
 local rarityPill = create("Frame", {
@@ -128,12 +130,15 @@ local manaFill, manaText =
 	bar(card, UDim2.fromOffset(12, 88), 14, Color3.fromRGB(120, 140, 255), Color3.fromRGB(70, 60, 220))
 local staminaFill, staminaText =
 	bar(card, UDim2.fromOffset(12, 106), 14, Color3.fromRGB(240, 240, 120), Color3.fromRGB(200, 170, 40))
+local guardFill, guardText =
+	bar(card, UDim2.fromOffset(12, 124), 12, Color3.fromRGB(210, 220, 235), Color3.fromRGB(120, 135, 160))
+local guardBarBack = guardFill.Parent
 local xpFill, xpText =
-	bar(card, UDim2.fromOffset(12, 124), 12, Color3.fromRGB(230, 150, 255), Color3.fromRGB(150, 70, 220))
+	bar(card, UDim2.fromOffset(12, 140), 12, Color3.fromRGB(230, 150, 255), Color3.fromRGB(150, 70, 220))
 
 -- Estados (debajo de la tarjeta): Berserker, Sobrecarga, Regenerando
 local statusRow = create("Frame", {
-	Position = UDim2.fromOffset(16, 170),
+	Position = UDim2.fromOffset(16, 186),
 	Size = UDim2.fromOffset(300, 24),
 	BackgroundTransparency = 1,
 }, gui)
@@ -174,7 +179,7 @@ local exhaustedChip = statusChip(5, "💦 Agotado", Color3.fromRGB(200, 200, 120
 
 -- Progreso de la misión (debajo de los estados)
 local questPanel = panel(gui, {
-	Position = UDim2.fromOffset(16, 200),
+	Position = UDim2.fromOffset(16, 216),
 	Size = UDim2.fromOffset(300, 0),
 	AutomaticSize = Enum.AutomaticSize.Y,
 	Visible = false,
@@ -208,7 +213,7 @@ create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.La
 
 -- Barra de "calor" de la Sobrecarga de Energía (solo Invocados)
 local heatBar = create("Frame", {
-	Position = UDim2.fromOffset(16, 200),
+	Position = UDim2.fromOffset(16, 216),
 	Size = UDim2.fromOffset(300, 8),
 	BackgroundColor3 = Color3.fromRGB(12, 13, 22),
 	Visible = false,
@@ -255,16 +260,21 @@ create("UIListLayout", {
 	Padding = UDim.new(0, 6),
 	SortOrder = Enum.SortOrder.LayoutOrder,
 }, devPanel)
-for order, delta in { -5, 5 } do
-	local devButton =
-		UI.button(devPanel, (if delta > 0 then "+" else "") .. delta .. " Nv", Color3.fromRGB(150, 90, 30), {
-			Size = UDim2.fromOffset(72, 38),
-			TextSize = 15,
-			LayoutOrder = order,
-		})
-	create("UIStroke", { Color = Color3.fromRGB(255, 200, 90), Thickness = 1.5 }, devButton)
+-- { texto, remoto, cantidad }
+local devButtons = {
+	{ "-5 Nv", devLevelRemote, -5 },
+	{ "+5 Nv", devLevelRemote, 5 },
+	{ "-500 💰", devGoldRemote, -500 },
+	{ "+500 💰", devGoldRemote, 500 },
+}
+for order, info in devButtons do
+	local devButton = UI.button(devPanel, info[1], Color3.fromRGB(150, 90, 30), {
+		Size = UDim2.fromOffset(76, 38),
+		TextSize = 14,
+		LayoutOrder = order,
+	})
 	devButton.Activated:Connect(function()
-		devLevelRemote:FireServer(delta)
+		info[2]:FireServer(info[3])
 	end)
 end
 local function updateDevPanel()
@@ -698,15 +708,30 @@ local sprintAction = makeAction("Sprint", 5, "🏃", "Correr", "Shift", Color3.f
 end)
 sprintAction.Button.Visible = UserInputService.TouchEnabled
 
+-- Bloquear: mantener F (en móvil, el botón activa/desactiva). El Slime usa F para absorber.
+local wantsGuard = false
+local function setGuard(enabled)
+	if wantsGuard ~= enabled then
+		wantsGuard = enabled
+		guardRemote:FireServer(enabled)
+	end
+end
+local guardAction = makeAction("Guard", 3, "🛡️", "Bloquear", "F", Color3.fromRGB(150, 160, 185), 0, function()
+	setGuard(not wantsGuard)
+end)
+
 UserInputService.InputEnded:Connect(function(input)
 	if SPRINT_KEYS[input.KeyCode] then
 		setSprint(false)
+	elseif input.KeyCode == Enum.KeyCode.F then
+		setGuard(false)
 	end
 end)
 
--- Si la ventana pierde el foco (por ejemplo al hacer clic en Studio), dejar de correr
+-- Si la ventana pierde el foco (por ejemplo al hacer clic en Studio), dejar de correr y de bloquear
 UserInputService.WindowFocusReleased:Connect(function()
 	setSprint(false)
+	setGuard(false)
 end)
 
 for _, action in orderedActions do
@@ -734,6 +759,10 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		setSprint(true)
 		return
 	end
+	if input.KeyCode == Enum.KeyCode.F and guardAction.Button.Visible then
+		setGuard(true)
+		return
+	end
 	-- Usar el botón visible que tenga esa tecla
 	local key = keyNames[input.KeyCode]
 	if key then
@@ -759,6 +788,10 @@ local FAST_ATTRIBUTES = {
 	Sprinting = true,
 	Exhausted = true,
 	InSafeZone = true,
+	Guard = true,
+	MaxGuard = true,
+	Guarding = true,
+	GuardBroken = true,
 }
 
 local camera = workspace.CurrentCamera
@@ -777,9 +810,17 @@ local function refreshFast()
 	safeChip.Visible = player:GetAttribute("InSafeZone") == true
 	exhaustedChip.Visible = player:GetAttribute("Exhausted") == true
 
+	-- Barra de bloqueo
+	local guard = player:GetAttribute("Guard") or 0
+	local maxGuard = math.max(player:GetAttribute("MaxGuard") or 1, 1)
+	local broken = player:GetAttribute("GuardBroken") == true
+	guardFill.Size = UDim2.fromScale(math.clamp(guard / maxGuard, 0, 1), 1)
+	guardText.Text = (if broken then "Bloqueo roto  " else "Bloqueo  ") .. guard .. " / " .. maxGuard
+	guardAction.Button.BackgroundTransparency = if player:GetAttribute("Guarding") then 0.4 else 0
+
 	heatBar.Visible = race.Overload == true
 	heatFill.Size = UDim2.fromScale(math.clamp(player:GetAttribute("Heat") or 0, 0, 1), 1)
-	questPanel.Position = UDim2.fromOffset(16, if heatBar.Visible then 230 else 200)
+	questPanel.Position = UDim2.fromOffset(16, if heatBar.Visible then 246 else 216)
 
 	-- Stamina
 	local stamina = player:GetAttribute("Stamina") or 0
@@ -894,6 +935,8 @@ local function refresh()
 		actions[abilityId].Button.Visible = Config.CanUseAbility(raceId, skills, abilityId)
 	end
 	actions.Absorb.Button.Visible = race.CanAbsorb
+	actions.Guard.Button.Visible = not race.CanAbsorb
+	guardBarBack.Visible = not race.CanAbsorb
 	-- Las espadas rápidas bajan la recarga del clic
 	actions.Attack.Cooldown = player:GetAttribute("AttackCooldown") or Config.Attack.Cooldown
 	actions.Dash.Button.Visible = race.CanAbsorb and skills.Dash == true
@@ -1028,6 +1071,7 @@ end
 
 function Hud.Hide()
 	setSprint(false)
+	setGuard(false)
 	gui.Enabled = false
 	deathLabel.Visible = false
 end

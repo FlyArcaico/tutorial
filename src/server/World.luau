@@ -5,6 +5,7 @@ local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Shops = require(script.Parent.Shops)
+local Village = require(script.Parent.Village)
 
 local World = {}
 
@@ -85,64 +86,6 @@ local function isInsideAnyZone(position, margin)
 		end
 	end
 	return false
-end
-
--- Zona segura: un círculo en el suelo y una cúpula brillante que se puede atravesar
-function World.BuildSafeZone(parent)
-	local safe = Config.SafeZone
-	local folder = Instance.new("Folder")
-	folder.Name = "SafeZone"
-	folder.Parent = parent
-
-	makePart(folder, {
-		Name = "SafeGround",
-		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(0.2, safe.Radius * 2, safe.Radius * 2),
-		CFrame = CFrame.new(safe.Center + Vector3.new(0, -0.03, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-		Color = Color3.fromRGB(120, 200, 140),
-		Material = Enum.Material.Grass,
-	})
-	makePart(folder, {
-		Name = "SafeDome",
-		Shape = Enum.PartType.Ball,
-		Size = Vector3.one * safe.Radius * 2,
-		Position = safe.Center,
-		Color = Color3.fromRGB(120, 255, 170),
-		Material = Enum.Material.ForceField,
-		Transparency = 0.3,
-		CanCollide = false,
-		CanQuery = false,
-		CanTouch = false,
-		CastShadow = false,
-	})
-
-	-- Postes con luz alrededor del borde
-	for index = 1, 8 do
-		local angle = index / 8 * math.pi * 2
-		local position = safe.Center + Vector3.new(math.cos(angle), 0, math.sin(angle)) * (safe.Radius - 1)
-		makePart(folder, {
-			Name = "Post",
-			Size = Vector3.new(0.8, 5, 0.8),
-			Position = position + Vector3.new(0, 2.5, 0),
-			Color = Color3.fromRGB(110, 75, 45),
-			Material = Enum.Material.Wood,
-		})
-		local lamp = makePart(folder, {
-			Name = "Lamp",
-			Shape = Enum.PartType.Ball,
-			Size = Vector3.one * 1.4,
-			Position = position + Vector3.new(0, 5.6, 0),
-			Color = Color3.fromRGB(150, 255, 190),
-			Material = Enum.Material.Neon,
-			CanCollide = false,
-		})
-		local light = Instance.new("PointLight")
-		light.Color = lamp.Color
-		light.Range = 14
-		light.Parent = lamp
-	end
-
-	makeSign(folder, safe.Center + Vector3.new(10, 0, -safe.Radius + 4), "Zona segura\nAquí no entran los monstruos")
 end
 
 -- NPC de misiones: un sabio con túnica, barba y bastón
@@ -232,13 +175,13 @@ function World.BuildQuestGiver(parent)
 	nameLabel.TextSize = 18
 	nameLabel.TextColor3 = Color3.new(1, 1, 1)
 	nameLabel.TextStrokeTransparency = 0.2
-	nameLabel.Text = giver.Name .. " · Misiones"
+	nameLabel.Text = giver.Name .. " · Quests"
 	nameLabel.Parent = billboard
 
 	-- Pulsa T para hablar (la E ya se usa para las habilidades)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "QuestPrompt"
-	prompt.ActionText = "Hablar"
+	prompt.ActionText = "Talk"
 	prompt.ObjectText = giver.Name
 	prompt.KeyboardKeyCode = Enum.KeyCode.T
 	prompt.MaxActivationDistance = giver.TalkDistance
@@ -286,35 +229,27 @@ function World.Build()
 		Material = Enum.Material.Slate,
 	})
 
-	-- Spawn area
-	if not Workspace:FindFirstChildOfClass("SpawnLocation") then
-		local spawnLocation = Instance.new("SpawnLocation")
-		spawnLocation.Anchored = true
-		spawnLocation.Size = Vector3.new(14, 1, 14)
-		spawnLocation.Position = Vector3.new(0, 0, 0)
-		spawnLocation.Color = Color3.fromRGB(90, 170, 255)
-		spawnLocation.Material = Enum.Material.SmoothPlastic
-		spawnLocation.Duration = 3
-		spawnLocation.Parent = world
+	-- Punto de aparición: en el camino sur del pueblo, mirando a la fuente (invisible)
+	for _, old in Workspace:GetDescendants() do
+		if old:IsA("SpawnLocation") then
+			old:Destroy()
+		end
+	end
+	local spawnLocation = Instance.new("SpawnLocation")
+	spawnLocation.Anchored = true
+	spawnLocation.Size = Vector3.new(8, 0.2, 8)
+	spawnLocation.CFrame = CFrame.lookAt(Vector3.new(0, 0.2, 30), Vector3.new(0, 0.2, 0))
+	spawnLocation.Transparency = 1
+	spawnLocation.CanCollide = false
+	spawnLocation.Duration = 0
+	spawnLocation.Parent = world
+	local decal = spawnLocation:FindFirstChildOfClass("Decal")
+	if decal then
+		decal:Destroy()
 	end
 
-	local crystal = makePart(world, {
-		Name = "RebirthCrystal",
-		Size = Vector3.new(3, 8, 3),
-		CFrame = CFrame.new(16, 5, 6) * CFrame.Angles(0, math.rad(45), math.rad(10)),
-		Color = Color3.fromRGB(120, 200, 255),
-		Material = Enum.Material.Neon,
-		CanCollide = false,
-	})
-	local light = Instance.new("PointLight")
-	light.Color = crystal.Color
-	light.Range = 20
-	light.Brightness = 2
-	light.Parent = crystal
-
-	makeSign(world, Vector3.new(-10, 0, 8), Config.GameName)
-
-	World.BuildSafeZone(world)
+	-- Pueblo (zona segura), NPC de misiones y tiendas
+	Village.Build(world)
 	World.BuildQuestGiver(world)
 	Shops.Build(world)
 
@@ -346,8 +281,34 @@ function World.Build()
 
 	world.Parent = Workspace
 
-	Lighting.ClockTime = 14
+	-- Luz de tarde cálida con un poco de neblina para dar ambiente
+	Lighting.ClockTime = 15.5
 	Lighting.Brightness = 2
+	Lighting.OutdoorAmbient = Color3.fromRGB(140, 135, 150)
+	Lighting.EnvironmentDiffuseScale = 0.6
+	Lighting.EnvironmentSpecularScale = 0.6
+	if not Lighting:FindFirstChildOfClass("Atmosphere") then
+		local atmosphere = Instance.new("Atmosphere")
+		atmosphere.Density = 0.28
+		atmosphere.Offset = 0.2
+		atmosphere.Color = Color3.fromRGB(200, 215, 235)
+		atmosphere.Decay = Color3.fromRGB(110, 120, 150)
+		atmosphere.Haze = 1.2
+		atmosphere.Parent = Lighting
+	end
+	if not Lighting:FindFirstChildOfClass("ColorCorrectionEffect") then
+		local correction = Instance.new("ColorCorrectionEffect")
+		correction.Saturation = 0.12
+		correction.Contrast = 0.05
+		correction.Parent = Lighting
+	end
+	if not Lighting:FindFirstChildOfClass("BloomEffect") then
+		local bloom = Instance.new("BloomEffect")
+		bloom.Intensity = 0.4
+		bloom.Size = 20
+		bloom.Threshold = 1.6
+		bloom.Parent = Lighting
+	end
 end
 
 return World

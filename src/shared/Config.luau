@@ -53,10 +53,22 @@ Config.Sprint = {
 	ExhaustedRecover = 0.3, -- si te quedas sin stamina, no puedes correr hasta recuperar este %
 }
 
+-- Bloquear (mantener F; el Slime usa F para absorber y no puede bloquear).
+-- Mientras bloqueas no recibes daño: el golpe gasta tu barra de bloqueo.
+Config.Guard = {
+	Max = 100, -- barra de bloqueo sin arma
+	SwordBonus = 50, -- con espada la barra es más grande
+	RegenPerSecond = 20,
+	RegenDelay = 1.5, -- segundos sin bloquear antes de que se recupere
+	BreakStun = 1.5, -- si se rompe la barra, te quedas aturdido (lento) este tiempo
+	RecoverFraction = 0.4, -- tras romperse, no puedes bloquear hasta recuperar este %
+	SpeedMult = 0.5, -- vas más lento mientras bloqueas
+}
+
 -- Zona segura alrededor del spawn: los monstruos no entran ni atacan dentro, y te curas.
 Config.SafeZone = {
 	Center = Vector3.new(0, 0, 0),
-	Radius = 40,
+	Radius = 62, -- todo el pueblo
 	HealPerSecond = 0.05, -- fracción de vida por segundo
 }
 
@@ -624,7 +636,7 @@ Config.Monsters = {
 Config.Zones = {
 	{
 		Name = "Pradera Susurrante",
-		Label = "Pradera Susurrante\nNivel 1-4",
+		Label = "Whispering Meadow\nLv. 1-4",
 		Center = Vector3.new(0, 0, -140),
 		Radius = 70,
 		Levels = { 1, 4 },
@@ -633,7 +645,7 @@ Config.Zones = {
 	},
 	{
 		Name = "Colinas de Piedra",
-		Label = "Colinas de Piedra\nNivel 5-9",
+		Label = "Stone Hills\nLv. 5-9",
 		Center = Vector3.new(0, 0, -340),
 		Radius = 80,
 		Levels = { 5, 9 },
@@ -890,8 +902,8 @@ end
 --------------------------------------------------------------------------------
 
 Config.QuestGiver = {
-	Name = "Maestro Bram",
-	Position = Vector3.new(-16, 0, -14), -- dentro de la zona segura
+	Name = "Elder Bram",
+	Position = Vector3.new(12, 0, -16), -- en la plaza, junto a la fuente
 	TalkDistance = 14,
 }
 
@@ -1135,20 +1147,20 @@ Config.ShopTalkDistance = 14
 
 Config.Shops = {
 	Medicine = {
-		Title = "Medicina",
+		Title = "Medicine",
 		Icon = "⚗️",
-		Npc = "Herbolaria Liora",
-		Greeting = "¡Bienvenido! Mis pociones curan cualquier herida. ¿Qué necesitas?",
-		Position = Vector3.new(28, 0, 9),
+		Npc = "Herbalist Liora",
+		Greeting = "Welcome, traveler! My potions can heal any wound.",
+		Position = Vector3.new(-25, 0, 2), -- al oeste de la fuente
 		Color = Color3.fromRGB(110, 210, 140),
 		Items = { "HealthPotion", "FullPotion", "ManaPotion", "StaminaPotion", "StatReset" },
 	},
 	Blacksmith = {
-		Title = "Herrería",
+		Title = "Blacksmith",
 		Icon = "⚒️",
-		Npc = "Herrero Brakk",
-		Greeting = "¡Acero de la mejor calidad! Cuanto más pagues, mejor la hoja.",
-		Position = Vector3.new(28, 0, -14),
+		Npc = "Blacksmith Brakk",
+		Greeting = "Finest steel in the land! The more you pay, the better the blade.",
+		Position = Vector3.new(25, 0, 2), -- al este de la fuente
 		Color = Color3.fromRGB(255, 150, 70),
 		Weapons = Config.WeaponOrder,
 	},
