@@ -208,7 +208,9 @@ function render(state)
 		speechLabel.Text =
 			"¡Hola, viajero! Los monstruos no paran de molestar al pueblo. ¿Me ayudas? Elige una misión:"
 		for index, quest in Config.Quests do
-			questCard(quest, state.Level, index, true)
+			if Config.IsQuestAvailable(quest) then
+				questCard(quest, state.Level, index, true)
+			end
 		end
 		addButton("Ahora no", Colors.PanelLight, 1, close)
 	else

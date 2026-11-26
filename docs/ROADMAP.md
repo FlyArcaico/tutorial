@@ -84,6 +84,28 @@ Probado por el dueño en Studio: andar, correr, morir y reaparecer funcionan bie
 - [x] Durante la secuencia no se puede atacar, usar habilidades ni moverse (tras acercarse).
 - Tiempos y probabilidades configurables en `Config.AbsorbSequence` y `Config.SkillAcquire`.
 
+## Monstruos — Goblin de nivel 1 (hecho, pendiente de probar en Studio)
+
+- [x] Murciélagos y lobos retirados de las tablas de aparición (sus datos, diseños,
+      animaciones y misiones se conservan; las misiones se ocultan en el NPC).
+- [x] Zonas con tablas de aparición reutilizables (`Config.Zones[].Spawns`: monstruo, peso,
+      rango de niveles). El sitio de aparición se comprueba: fuera de la zona segura y sin
+      árboles, rocas ni edificios encima.
+- [x] Goblin (`Config.Monsters.Goblin`, diseño `Monsters.builders.GoblinTier1`):
+      rig R15 completo, pequeño (~3,8 studs), cabeza grande, orejas puntiagudas, nariz ancha,
+      ojos grandes con cejas preocupadas, colmillos, pelo despeinado, vendas, taparrabos,
+      cinturón de cuero y garrote; tono de piel distinto en cada uno.
+- [x] Animaciones (`AnimationData.Monster.Goblin`): reposo encorvado (mira a los lados, se
+      rasca la cabeza), andar con pasos cortos y bamboleo, correr encorvado, garrotazo torpe
+      (cargar, golpe, tropiezo), recibir daño y caer muerto.
+- [x] IA: pasea cerca de donde apareció, persigue algo más lento que el jugador, se para
+      al atacar y el golpe llega al bajar el garrote (se puede esquivar).
+- [x] Misión nueva de nivel 1: "Goblins traviesos".
+- Estructura preparada para variantes: cada goblin futuro es otra entrada con
+  `Species = "Goblin"` y su propio `Builder` / `AnimSet`.
+- Las habilidades del Slime que venían de murciélagos y lobos no se pueden conseguir
+  mientras esos monstruos estén retirados. El Goblin no da habilidad (solo atributos).
+
 ## Decisiones pendientes (preguntar al dueño)
 
 - Invocados: el juego tiene **Fuego / Agua / Planta**; el documento de diseño habla de **Hielo**.

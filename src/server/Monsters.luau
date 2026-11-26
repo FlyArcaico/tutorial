@@ -207,6 +207,259 @@ function builders.Golem(root, add, s, color, eyeColor)
 end
 
 --------------------------------------------------------------------------------
+-- Goblin de nivel 1 (rig R15 completo)
+--
+-- Pequeño y delgado, con la cabeza grande, orejas puntiagudas hacia los lados, nariz
+-- ancha, ojos grandes con cejas preocupadas, colmillos pequeños, pelo despeinado,
+-- vendas en las muñecas, taparrabos, cinturón de cuero y un garrote de madera.
+-- Las piezas del cuerpo son elipsoides suaves para que parezca una criatura y no bloques.
+-- Las articulaciones se llaman igual que en R15 (Root, Waist, Neck, RightShoulder...),
+-- así lo anima el mismo sistema de fotogramas clave que a los jugadores.
+--------------------------------------------------------------------------------
+
+-- Altura del centro del HumanoidRootPart sobre el suelo (HipHeight + mitad del root)
+local GOBLIN_ROOT_Y = 1.41
+
+local function sphereMesh(part, scale)
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	if scale then
+		mesh.Scale = scale
+	end
+	mesh.Parent = part
+	return part
+end
+
+builders.GoblinTier1 = function(root, add, s, color, eyeColor)
+	root.Transparency = 1
+
+	-- Posición en "coordenadas del suelo" (y = 0 es el suelo) -> relativa al root
+	local function g(x, y, z)
+		return CFrame.new(x * s, (y - GOBLIN_ROOT_Y) * s, z * s)
+	end
+	local function v(x, y, z)
+		return Vector3.new(x, y, z) * s
+	end
+
+	-- Cada goblin tiene un tono de piel un poco distinto
+	local skin = color:Lerp(Color3.fromRGB(135, 165, 65), rng:NextNumber(0, 0.45))
+	local skinDark = skin:Lerp(Color3.fromRGB(40, 60, 25), 0.25)
+	local skinShade = skin:Lerp(Color3.fromRGB(40, 60, 25), 0.12)
+	local cloth = Color3.fromRGB(150, 120, 80):Lerp(Color3.fromRGB(110, 95, 75), rng:NextNumber(0, 1))
+	local leather = Color3.fromRGB(75, 48, 30)
+	local bandage = Color3.fromRGB(222, 212, 190)
+	local wood = Color3.fromRGB(110, 72, 42)
+	local hair = ({
+		Color3.fromRGB(70, 55, 45),
+		Color3.fromRGB(120, 115, 110),
+		Color3.fromRGB(95, 70, 50),
+	})[rng:NextInteger(1, 3)]
+	local fabric = { Material = Enum.Material.Fabric }
+
+	local function bodyPart(name, size, at, partColor, joint, pivot, parent)
+		local part = add(name, size, at, partColor, nil, { Joint = joint, Pivot = pivot, Attach = parent })
+		return sphereMesh(part)
+	end
+
+	-- Cuerpo (articulaciones R15)
+	local lowerTorso = bodyPart("LowerTorso", v(0.9, 0.42, 0.55), g(0, 1.41, 0), skinShade, "Root", g(0, 1.41, 0), root)
+	local upperTorso =
+		bodyPart("UpperTorso", v(0.95, 0.9, 0.6), g(0, 2.02, 0.02), skin, "Waist", g(0, 1.6, 0), lowerTorso)
+	local head = bodyPart("Head", v(1.3, 1.2, 1.2), g(0, 3.04, -0.05), skin, "Neck", g(0, 2.44, 0), upperTorso)
+
+	local hands = {}
+	for _, side in { 1, -1 } do
+		local prefix = if side > 0 then "Right" else "Left"
+		local x = side * 0.64
+		local upperArm = bodyPart(
+			prefix .. "UpperArm",
+			v(0.3, 0.6, 0.3),
+			g(x, 2.03, 0),
+			skin,
+			prefix .. "Shoulder",
+			g(x, 2.3, 0),
+			upperTorso
+		)
+		local lowerArm = bodyPart(
+			prefix .. "LowerArm",
+			v(0.27, 0.56, 0.27),
+			g(x, 1.51, 0),
+			skin,
+			prefix .. "Elbow",
+			g(x, 1.76, 0),
+			upperArm
+		)
+		hands[side] = bodyPart(
+			prefix .. "Hand",
+			v(0.32, 0.3, 0.32),
+			g(x, 1.12, 0),
+			skinDark,
+			prefix .. "Wrist",
+			g(x, 1.26, 0),
+			lowerArm
+		)
+
+		local legX = side * 0.24
+		local upperLeg = bodyPart(
+			prefix .. "UpperLeg",
+			v(0.4, 0.58, 0.4),
+			g(legX, 0.97, 0),
+			skinShade,
+			prefix .. "Hip",
+			g(legX, 1.22, 0),
+			lowerTorso
+		)
+		local lowerLeg = bodyPart(
+			prefix .. "LowerLeg",
+			v(0.33, 0.56, 0.33),
+			g(legX, 0.47, 0),
+			skin,
+			prefix .. "Knee",
+			g(legX, 0.72, 0),
+			upperLeg
+		)
+		bodyPart(
+			prefix .. "Foot",
+			v(0.42, 0.24, 0.66),
+			g(legX, 0.11, -0.09),
+			skinDark,
+			prefix .. "Ankle",
+			g(legX, 0.22, 0),
+			lowerLeg
+		)
+
+		-- Vendas en la muñeca (como en la referencia) y una en la espinilla derecha
+		sphereMesh(add("WristWrap", v(0.33, 0.16, 0.33), g(x, 1.32, 0), bandage, fabric, { Attach = lowerArm }))
+		sphereMesh(add("WristWrap", v(0.31, 0.12, 0.31), g(x, 1.48, 0), bandage, fabric, { Attach = lowerArm }))
+		if side > 0 then
+			sphereMesh(add("ShinWrap", v(0.37, 0.15, 0.37), g(legX, 0.55, 0), bandage, fabric, { Attach = lowerLeg }))
+		end
+
+		-- Ojo: blanco grande, pupila pequeña mirando un poco hacia dentro y un brillo
+		sphereMesh(
+			add("EyeWhite", v(0.34, 0.38, 0.12), g(side * 0.26, 3.08, -0.6), Color3.fromRGB(245, 245, 235), nil, {
+				Attach = head,
+			})
+		)
+		sphereMesh(add("Pupil", v(0.12, 0.14, 0.05), g(side * 0.23, 3.06, -0.665), eyeColor, nil, { Attach = head }))
+		sphereMesh(add("EyeShine", v(0.05, 0.05, 0.03), g(side * 0.25, 3.11, -0.69), Color3.new(1, 1, 1), nil, {
+			Attach = head,
+		}))
+		-- Cejas inclinadas hacia arriba por dentro: cara de goblin novato y algo asustado
+		sphereMesh(
+			add(
+				"Brow",
+				v(0.42, 0.12, 0.2),
+				g(side * 0.27, 3.3, -0.55) * CFrame.Angles(0, 0, side * math.rad(-14)),
+				skinDark,
+				nil,
+				{ Attach = head }
+			)
+		)
+		-- Colmillos pequeños que asoman hacia arriba
+		add(
+			"Fang",
+			v(0.07, 0.13, 0.05),
+			g(side * 0.13, 2.68, -0.62),
+			Color3.fromRGB(245, 240, 225),
+			nil,
+			{ Attach = head }
+		)
+
+		-- Oreja grande y puntiaguda hacia el lado (cuña: la punta hacia fuera, un poco hacia arriba)
+		local earAngle = CFrame.Angles(0, 0, side * math.rad(16)) * CFrame.Angles(0, -side * math.rad(90), 0)
+		add(
+			"Ear",
+			v(0.1, 0.44, 0.98),
+			g(side * 1.0, 3.12, 0.05) * earAngle,
+			skin,
+			nil,
+			{ Class = "WedgePart", Attach = head }
+		)
+		add(
+			"InnerEar",
+			v(0.05, 0.28, 0.66),
+			g(side * 0.94, 3.1, 0.01) * earAngle,
+			Color3.fromRGB(150, 115, 90),
+			nil,
+			{ Class = "WedgePart", Attach = head }
+		)
+	end
+
+	-- Cara: mandíbula ancha, nariz grande y ancha, boca fina
+	sphereMesh(add("Jaw", v(1.2, 0.75, 1.05), g(0, 2.74, -0.1), skin, nil, { Attach = head }))
+	sphereMesh(add("Nose", v(0.46, 0.32, 0.36), g(0, 2.9, -0.66), skinDark, nil, { Attach = head }))
+	add("Mouth", v(0.44, 0.05, 0.04), g(0, 2.62, -0.62), Color3.fromRGB(40, 25, 20), nil, { Attach = head })
+
+	-- Pelo despeinado: unos mechones encima y detrás de la cabeza
+	for index, tuft in
+		{
+			{ -0.3, 3.62, 0.05, -20, 15 },
+			{ 0.05, 3.7, -0.05, 10, -10 },
+			{ 0.35, 3.6, 0.1, 25, 20 },
+			{ -0.15, 3.52, 0.4, -10, 160 },
+			{ 0.25, 3.48, 0.42, 15, 200 },
+		}
+	do
+		add(
+			"Hair" .. index,
+			v(0.32, 0.36, 0.48),
+			g(tuft[1], tuft[2], tuft[3]) * CFrame.Angles(0, math.rad(tuft[5]), math.rad(tuft[4])),
+			hair,
+			nil,
+			{ Class = "WedgePart", Attach = head }
+		)
+	end
+
+	-- Ropa: cinturón de cuero con hebilla, taparrabos y una tira de tela rota en el pecho
+	add(
+		"Belt",
+		v(0.98, 0.14, 0.62),
+		g(0, 1.56, 0),
+		leather,
+		{ Material = Enum.Material.Leather },
+		{ Attach = lowerTorso }
+	)
+	add("Buckle", v(0.16, 0.12, 0.05), g(0, 1.56, -0.32), Color3.fromRGB(120, 115, 105), {
+		Material = Enum.Material.Metal,
+	}, { Attach = lowerTorso })
+	add("LoinFront", v(0.52, 0.58, 0.06), g(0, 1.22, -0.29), cloth, fabric, { Attach = lowerTorso })
+	add("LoinBack", v(0.56, 0.52, 0.06), g(0, 1.24, 0.29), cloth, fabric, { Attach = lowerTorso })
+	add("ChestCloth", v(1.05, 0.2, 0.66), g(0, 2.12, 0.02) * CFrame.Angles(0, 0, math.rad(35)), cloth, fabric, {
+		Attach = upperTorso,
+	})
+	add(
+		"Patch",
+		v(0.18, 0.16, 0.05),
+		g(0.22, 2.26, -0.33),
+		cloth:Lerp(Color3.new(), 0.3),
+		fabric,
+		{ Attach = upperTorso }
+	)
+
+	-- Garrote de madera tosco en la mano derecha (apunta hacia delante con el brazo caído)
+	local hand = hands[1]
+	local along = CFrame.Angles(0, math.rad(90), 0) -- los cilindros van en X: así quedan hacia delante
+	add("ClubGrip", v(0.32, 0.19, 0.19), g(0.64, 1.12, -0.3) * along, leather, { Shape = Enum.PartType.Cylinder }, {
+		Attach = hand,
+	})
+	add("ClubHandle", v(1.25, 0.16, 0.16), g(0.64, 1.12, -0.62) * along, wood, {
+		Shape = Enum.PartType.Cylinder,
+		Material = Enum.Material.Wood,
+	}, { Attach = hand })
+	add("ClubHead", v(0.6, 0.38, 0.38), g(0.64, 1.14, -1.38) * along, wood:Lerp(Color3.new(), 0.15), {
+		Shape = Enum.PartType.Cylinder,
+		Material = Enum.Material.Wood,
+	}, { Attach = hand })
+	for _, knot in { { 0.16, 1.26, -1.3 }, { -0.12, 1.02, -1.48 }, { 0.05, 1.3, -1.55 } } do
+		add("ClubKnot", v(0.16, 0.16, 0.16), g(0.64 + knot[1], knot[2], knot[3]), wood:Lerp(Color3.new(), 0.25), {
+			Shape = Enum.PartType.Ball,
+			Material = Enum.Material.Wood,
+		}, { Attach = hand })
+	end
+end
+
+--------------------------------------------------------------------------------
 -- Barra de vida, números de daño y esencias
 --------------------------------------------------------------------------------
 
@@ -345,9 +598,56 @@ end
 -- Aparecer
 --------------------------------------------------------------------------------
 
-local function spawnMonster(monsterId, zone)
+-- Elige qué monstruo aparece según la tabla de la zona (Weight = probabilidad relativa)
+local function pickSpawn(zone)
+	local total = 0
+	for _, entry in zone.Spawns do
+		total += entry.Weight or 1
+	end
+	local roll = rng:NextNumber(0, total)
+	for _, entry in zone.Spawns do
+		roll -= entry.Weight or 1
+		if roll <= 0 then
+			return entry
+		end
+	end
+	return zone.Spawns[#zone.Spawns]
+end
+
+-- Busca un sitio libre dentro de la zona: fuera de la zona segura y sin árboles, rocas,
+-- casas u otros monstruos encima. Si no encuentra ninguno, devuelve nil.
+local GROUND_NAMES = { Ground = true, Path = true, StoneGround = true }
+local function findSpawnPoint(zone)
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { essenceFolder, effectsFolder }
+	for _ = 1, 10 do
+		local point = randomPointInZone(zone)
+		if not Config.IsInSafeZone(point) then
+			local blocked = false
+			for _, part in
+				Workspace:GetPartBoundsInBox(CFrame.new(point + Vector3.new(0, 3, 0)), Vector3.new(4, 5, 4), params)
+			do
+				if not GROUND_NAMES[part.Name] then
+					blocked = true
+					break
+				end
+			end
+			if not blocked then
+				return point
+			end
+		end
+	end
+	return nil
+end
+
+local function spawnMonster(monsterId, zone, levels)
 	local def = Config.Monsters[monsterId]
-	local level = rng:NextInteger(zone.Levels[1], zone.Levels[2])
+	local position = findSpawnPoint(zone)
+	if not position then
+		return -- no hay sitio libre ahora; se intentará en el siguiente ciclo
+	end
+	local level = rng:NextInteger(levels[1], levels[2])
 	local stats = Config.MonsterStats(monsterId, level)
 	local s = stats.Scale
 	-- Cuanto más nivel, un poco más oscuro
@@ -360,7 +660,6 @@ local function spawnMonster(monsterId, zone)
 
 	local size = def.Size * s
 	local hipHeight = def.HipHeight * s
-	local position = randomPointInZone(zone)
 	local root = Instance.new("Part")
 	root.Name = "HumanoidRootPart"
 	root.Size = size
@@ -374,7 +673,7 @@ local function spawnMonster(monsterId, zone)
 	model.PrimaryPart = root
 
 	local function add(name, partSize, offset, partColor, props, options)
-		local part = Instance.new("Part")
+		local part = Instance.new(options and options.Class or "Part")
 		part.Name = name
 		part.Size = partSize
 		part.CFrame = root.CFrame * offset
@@ -410,18 +709,27 @@ local function spawnMonster(monsterId, zone)
 		part.Parent = model
 		return part
 	end
-	builders[monsterId](root, add, s, color, def.EyeColor)
+	builders[def.Builder or monsterId](root, add, s, color, def.EyeColor)
 
 	-- Altura de la barra de vida: justo encima de la pieza más alta
 	local boxCFrame, boxSize = model:GetBoundingBox()
 	local topOffset = boxCFrame.Position.Y + boxSize.Y / 2 - root.Position.Y + 1.2
 
+	-- Rig R15 (Goblin): el cliente lo anima con fotogramas clave. AnimScale ajusta los
+	-- desplazamientos de las animaciones (agacharse, caer muerto) a su tamaño.
+	if def.Rig == "R15" then
+		model:SetAttribute("Rig", "R15")
+		model:SetAttribute("AnimSet", def.AnimSet)
+		model:SetAttribute("AnimScale", (hipHeight + size.Y / 2) / 2.9)
+	end
+
 	local humanoid = Instance.new("Humanoid")
 	humanoid.RigType = Enum.HumanoidRigType.R15
+	humanoid.AutomaticScalingEnabled = false
 	humanoid.HipHeight = hipHeight
 	humanoid.MaxHealth = stats.Health
 	humanoid.Health = stats.Health
-	humanoid.WalkSpeed = Config.BaseSpeed
+	humanoid.WalkSpeed = def.WalkSpeed or Config.BaseSpeed
 	humanoid.BreakJointsOnDeath = false
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
@@ -440,7 +748,9 @@ local function spawnMonster(monsterId, zone)
 		Humanoid = humanoid,
 		Root = root,
 		TopOffset = topOffset,
+		Home = position, -- pasea cerca de donde apareció
 		LastAttack = 0,
+		AttackingUntil = 0,
 		NextWander = 0,
 		LastHitBy = nil, -- el último jugador que le pegó se lleva la muerte
 		SlowUntil = 0,
@@ -472,12 +782,20 @@ local function spawnMonster(monsterId, zone)
 		if bar then
 			bar:Destroy()
 		end
-		for _, descendant in model:GetDescendants() do
-			if descendant:IsA("BasePart") then
-				TweenService:Create(descendant, TweenInfo.new(0.8), { Transparency = 1 }):Play()
-			end
+		-- Los monstruos con animación de muerte (Goblin) se quedan quietos mientras caen
+		local corpseTime = def.CorpseTime or 1
+		if def.CorpseTime then
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.Anchored = true
 		end
-		task.delay(1, function()
+		task.delay(corpseTime - 0.9, function()
+			for _, descendant in model:GetDescendants() do
+				if descendant:IsA("BasePart") and descendant.Transparency < 1 then
+					TweenService:Create(descendant, TweenInfo.new(0.8), { Transparency = 1 }):Play()
+				end
+			end
+		end)
+		task.delay(corpseTime, function()
 			model:Destroy()
 		end)
 	end)
@@ -528,6 +846,21 @@ local function setBurning(state, burning)
 	end
 end
 
+-- Punto para pasear: cerca de su sitio (si lo tiene) y siempre dentro de la zona
+local function wanderPoint(state)
+	local radius = state.Def.WanderRadius
+	if not radius or not state.Home then
+		return randomPointInZone(state.Zone)
+	end
+	local angle = rng:NextNumber(0, math.pi * 2)
+	local point = state.Home + Vector3.new(math.cos(angle), 0, math.sin(angle)) * rng:NextNumber(3, radius)
+	local zone = state.Zone
+	if (point - zone.Center).Magnitude > zone.Radius then
+		point = zone.Center + (point - zone.Center).Unit * zone.Radius * 0.9
+	end
+	return point
+end
+
 local function updateMonster(state, now)
 	local humanoid = state.Humanoid
 
@@ -551,7 +884,13 @@ local function updateMonster(state, now)
 		humanoid:Move(Vector3.zero)
 		return
 	end
-	humanoid.WalkSpeed = Config.BaseSpeed * (if state.SlowUntil > now then state.SlowMult else 1)
+	-- Mientras prepara un golpe se queda quieto (así se ve el ataque y se puede esquivar)
+	if state.AttackingUntil > now then
+		humanoid.WalkSpeed = 0
+		return
+	end
+	local def = state.Def
+	local slowMult = if state.SlowUntil > now then state.SlowMult else 1
 
 	-- Zona segura: si un monstruo se acerca demasiado, sale de ella
 	local safe = Config.SafeZone
@@ -571,27 +910,53 @@ local function updateMonster(state, now)
 		target, distance = findTarget(state)
 	end
 
+	-- Velocidad: paseando o persiguiendo (cada monstruo puede tener las suyas)
+	local baseSpeed = if target then def.ChaseSpeed or Config.BaseSpeed else def.WalkSpeed or Config.BaseSpeed
+	humanoid.WalkSpeed = baseSpeed * slowMult
+
 	if target then
 		local targetRoot = target.HumanoidRootPart
 		humanoid:MoveTo(targetRoot.Position)
 
-		local reach = math.max(state.Size.X, state.Size.Z) / 2 + 3.5
-		if distance <= reach + state.Def.HipHeight and now - state.LastAttack >= 1.2 then
+		local reach = def.AttackReach or (math.max(state.Size.X, state.Size.Z) / 2 + 3.5 + def.HipHeight)
+		if distance <= reach and now - state.LastAttack >= (def.AttackCooldown or 1.2) then
 			state.LastAttack = now
 			-- Los clientes ven este cambio y reproducen la animación de ataque
 			state.Model:SetAttribute("AttackTick", (state.Model:GetAttribute("AttackTick") or 0) + 1)
-			if playerDamageHandler then
-				-- Combat aplica resistencias y el bloqueo (Guard)
-				playerDamageHandler(target, state.Stats.Damage, state.Def.Magic == true)
+
+			local function hit()
+				if playerDamageHandler then
+					-- Combat aplica resistencias y el bloqueo (Guard)
+					playerDamageHandler(target, state.Stats.Damage, def.Magic == true)
+				else
+					target.Humanoid:TakeDamage(state.Stats.Damage)
+				end
+			end
+
+			local windup = def.AttackWindup or 0
+			if windup <= 0 then
+				hit()
 			else
-				target.Humanoid:TakeDamage(state.Stats.Damage)
+				-- El golpe llega cuando baja el arma: si el jugador se aleja a tiempo, falla
+				state.AttackingUntil = now + windup + 0.15
+				humanoid:Move(Vector3.zero)
+				task.delay(windup, function()
+					local targetHumanoid = target:FindFirstChildOfClass("Humanoid")
+					local stillAlive = humanoid.Health > 0 and targetHumanoid and targetHumanoid.Health > 0
+					if stillAlive and target.Parent and state.RootedUntil <= os.clock() then
+						local gap = (target.HumanoidRootPart.Position - state.Root.Position).Magnitude
+						if gap <= reach * 1.2 then
+							hit()
+						end
+					end
+				end)
 			end
 		end
 	elseif awayFromHome then
 		humanoid:MoveTo(zone.Center)
 	elseif now >= state.NextWander then
 		state.NextWander = now + rng:NextNumber(3, 7)
-		humanoid:MoveTo(randomPointInZone(zone))
+		humanoid:MoveTo(wanderPoint(state))
 	end
 end
 
@@ -754,7 +1119,8 @@ end
 
 -- Para la autocomprobación: ¿tiene diseño este monstruo?
 function Monsters.HasBuilder(monsterId)
-	return builders[monsterId] ~= nil
+	local def = Config.Monsters[monsterId]
+	return def ~= nil and builders[def.Builder or monsterId] ~= nil
 end
 
 function Monsters.Start()
@@ -775,9 +1141,9 @@ function Monsters.Start()
 	task.spawn(function()
 		while true do
 			for _, zone in Config.Zones do
-				if (zoneCounts[zone] or 0) < zone.MaxMonsters then
-					local monsterId = zone.Monsters[rng:NextInteger(1, #zone.Monsters)]
-					spawnMonster(monsterId, zone)
+				if (zoneCounts[zone] or 0) < zone.MaxMonsters and #zone.Spawns > 0 then
+					local entry = pickSpawn(zone)
+					spawnMonster(entry.Monster, zone, entry.Levels)
 				end
 			end
 			task.wait(2)

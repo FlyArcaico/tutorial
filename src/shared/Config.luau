@@ -677,29 +677,79 @@ Config.Monsters = {
 		HipHeight = 2.6,
 		AggroRange = 30,
 	},
+
+	-- Goblin de nivel 1: pequeño, débil e inexperto, con un garrote de madera.
+	-- Usa un rig R15 completo (mismas articulaciones que los jugadores) para tener
+	-- animaciones de fotogramas clave: ver client/AnimationData.luau (Monster.Goblin).
+	-- Para futuros goblins (guerrero, chamán, líder...) se añade otra entrada con la misma
+	-- Species y su propio Builder/aspecto, sin tocar el resto del sistema.
+	Goblin = {
+		DisplayName = "Goblin",
+		Species = "Goblin",
+		Builder = "GoblinTier1", -- diseño (Monsters.luau)
+		AnimSet = "Goblin", -- animaciones (AnimationData.Monster)
+		Rig = "R15",
+		Health = 30,
+		Damage = 4,
+		XP = 15,
+		Gold = 1,
+		AbsorbStats = { Strength = 0.5, Agility = 0.5 },
+		Color = Color3.fromRGB(110, 150, 70), -- piel
+		EyeColor = Color3.fromRGB(30, 30, 25),
+		Size = Vector3.new(1, 1.2, 0.6), -- HumanoidRootPart (invisible)
+		HipHeight = 0.81,
+		AggroRange = 28,
+		WalkSpeed = 7, -- paseando
+		ChaseSpeed = 11, -- persiguiendo (más lento que un jugador andando: se le puede escapar)
+		AttackReach = 3.6, -- distancia para golpear (desde su centro)
+		AttackCooldown = 1.7, -- torpe: tarda en volver a atacar
+		AttackWindup = 0.45, -- el golpe llega al bajar el garrote (no al empezar la animación)
+		WanderRadius = 18, -- pasea cerca de donde apareció
+		CorpseTime = 2.6, -- segundos que se queda el cuerpo para la animación de muerte
+	},
 }
 
 -- Zonas donde aparecen monstruos. El spawn está en (0, 0, 0); las zonas van al norte (-Z).
+-- Spawns: tabla de aparición { Monster, Weight (probabilidad relativa), Levels = { min, max } }.
+-- Para sacar o volver a meter un monstruo basta con tocar esta tabla.
+-- (Murciélagos y lobos están retirados temporalmente: sus datos y diseños se conservan.)
 Config.Zones = {
 	{
 		Name = "Pradera Susurrante",
-		Label = "Whispering Meadow\nLv. 1-4",
+		Label = "Whispering Meadow\nLv. 1",
 		Center = Vector3.new(0, 0, -140),
 		Radius = 70,
-		Levels = { 1, 4 },
-		Monsters = { "Bat", "Bat", "Wolf" },
-		MaxMonsters = 10,
+		Spawns = {
+			{ Monster = "Goblin", Weight = 1, Levels = { 1, 1 } },
+			-- { Monster = "Bat", Weight = 2, Levels = { 1, 4 } },
+			-- { Monster = "Wolf", Weight = 1, Levels = { 1, 4 } },
+		},
+		MaxMonsters = 8,
 	},
 	{
 		Name = "Colinas de Piedra",
 		Label = "Stone Hills\nLv. 5-9",
 		Center = Vector3.new(0, 0, -340),
 		Radius = 80,
-		Levels = { 5, 9 },
-		Monsters = { "Wolf", "Golem", "Golem" },
+		Spawns = {
+			{ Monster = "Golem", Weight = 1, Levels = { 5, 9 } },
+			-- { Monster = "Wolf", Weight = 1, Levels = { 5, 9 } },
+		},
 		MaxMonsters = 6,
 	},
 }
+
+-- ¿Aparece este monstruo en alguna zona ahora mismo?
+function Config.IsMonsterActive(monsterId)
+	for _, zone in Config.Zones do
+		for _, spawn in zone.Spawns do
+			if spawn.Monster == monsterId then
+				return true
+			end
+		end
+	end
+	return false
+end
 
 -- Estadísticas de un monstruo según su nivel
 function Config.MonsterStats(monsterId, level)
@@ -958,6 +1008,16 @@ Config.QuestGiver = {
 -- Recompensa = Base + un extra por cada monstruo según su nivel (más nivel, más premio).
 Config.Quests = {
 	{
+		Id = "Goblins",
+		Title = "Goblins traviesos",
+		Description = "Unos goblins rondan la pradera y roban comida del pueblo. ¡Derrota a 5!",
+		Monster = "Goblin",
+		Count = 5,
+		MinLevel = 1,
+		BaseXP = 60,
+		BaseGold = 10,
+	},
+	{
 		Id = "Bats",
 		Title = "Plaga de murciélagos",
 		Description = "Los murciélagos de la pradera asustan a los viajeros. ¡Derrota a 5!",
@@ -1012,6 +1072,12 @@ function Config.GetQuest(questId)
 		end
 	end
 	return nil
+end
+
+-- Las misiones de monstruos que ahora no aparecen (murciélagos, lobos) se ocultan
+-- en el NPC sin borrarlas, para poder recuperarlas cuando vuelvan esos monstruos
+function Config.IsQuestAvailable(quest)
+	return Config.IsMonsterActive(quest.Monster)
 end
 
 --------------------------------------------------------------------------------

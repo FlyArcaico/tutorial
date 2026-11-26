@@ -1130,6 +1130,9 @@ function PlayerData.QuestAction(player, action, questId)
 		if slot.Quest then
 			return fail("Ya tienes una misión activa")
 		end
+		if not Config.IsQuestAvailable(quest) then
+			return fail("Esta misión no está disponible ahora")
+		end
 		if slot.Level < quest.MinLevel then
 			return fail("Necesitas nivel " .. quest.MinLevel)
 		end

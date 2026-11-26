@@ -54,6 +54,23 @@ function Tests.Run()
 		check(set.Guard ~= nil and set.GuardSword ~= nil, raceId .. ": faltan las guardias")
 	end
 
+	-- Monstruos R15 (Goblin): reposo, andar y correr mueven todo el cuerpo; ataque válido
+	for monsterId, set in AnimationData.Monster do
+		for _, kind in { "Idle", "Walk", "Run", "Attack" } do
+			local animation = set[kind]
+			check(animation ~= nil, monsterId .. ": falta " .. kind)
+			if animation then
+				checkAnimation(monsterId .. "." .. kind, animation)
+			end
+		end
+		for _, kind in { "Idle", "Walk", "Run" } do
+			local pose = AnimationData.Sample(set[kind], 0)
+			for _, joint in AnimationData.Joints do
+				check(pose[joint] ~= nil, monsterId .. "." .. kind .. ": falta la articulación " .. joint)
+			end
+		end
+	end
+
 	-- Morir debe acabar con el cuerpo tumbado y bajado al suelo
 	local lying = AnimationData.Sample(AnimationData.Animations.Death, AnimationData.Animations.Death.Length)
 	check(lying.Root.Position.Y < -1.5, "Morir: el cuerpo no baja hasta el suelo")

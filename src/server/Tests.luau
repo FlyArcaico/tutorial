@@ -83,10 +83,36 @@ function Tests.Run(modules)
 		check(modules.Monsters.HasBuilder(monsterId), monsterId .. ": no tiene diseño")
 	end
 	for _, zone in Config.Zones do
-		for _, monsterId in zone.Monsters do
-			check(Config.Monsters[monsterId] ~= nil, zone.Name .. ": monstruo desconocido " .. monsterId)
+		check(#zone.Spawns > 0, zone.Name .. ": la tabla de aparición está vacía")
+		for _, entry in zone.Spawns do
+			check(
+				Config.Monsters[entry.Monster] ~= nil,
+				zone.Name .. ": monstruo desconocido " .. tostring(entry.Monster)
+			)
+			check(entry.Levels and entry.Levels[1] <= entry.Levels[2], zone.Name .. ": rango de niveles inválido")
+			check(not Config.IsInSafeZone(zone.Center), zone.Name .. ": la zona está dentro de la zona segura")
 		end
 	end
+
+	-- Goblin: rig R15 con su diseño y sus animaciones; murciélagos y lobos retirados
+	local goblin = Config.Monsters.Goblin
+	check(goblin ~= nil and goblin.Rig == "R15" and goblin.AnimSet == "Goblin", "Goblin: falta configurar su rig")
+	check(Config.IsMonsterActive("Goblin"), "Goblin: no aparece en ninguna zona")
+	check(
+		not Config.IsMonsterActive("Bat") and not Config.IsMonsterActive("Wolf"),
+		"Murciélagos y lobos deberían estar retirados"
+	)
+	check(
+		Config.Monsters.Bat ~= nil and Config.Monsters.Wolf ~= nil,
+		"Los datos de murciélagos y lobos deben conservarse"
+	)
+	local availableQuests = 0
+	for _, quest in Config.Quests do
+		if Config.IsQuestAvailable(quest) then
+			availableQuests += 1
+		end
+	end
+	check(availableQuests > 0, "No hay ninguna misión disponible")
 
 	-- Tiendas, armas y misiones
 	for _, itemId in Config.Shops.Medicine.Items do
