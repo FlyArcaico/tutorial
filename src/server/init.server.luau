@@ -40,3 +40,13 @@ end
 Remotes.ReturnToMenu.OnServerEvent:Connect(function(player)
 	PlayerData.ReturnToMenu(player)
 end)
+
+-- Misiones del NPC
+Remotes.Quest.OnServerInvoke = function(player, action, questId)
+	return PlayerData.QuestAction(player, action, questId)
+end
+
+-- Modo prueba: +5 / -5 niveles
+Remotes.DevLevel.OnServerEvent:Connect(function(player, delta)
+	PlayerData.DevChangeLevel(player, delta)
+end)

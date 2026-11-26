@@ -27,6 +27,14 @@ local function getState(player)
 			LastCombat = 0,
 			LastAttack = 0,
 			Cooldowns = {},
+			-- Correr
+			Stamina = 0,
+			WantSprint = false, -- el jugador mantiene Control
+			Sprinting = false, -- está corriendo de verdad (se mueve y tiene stamina)
+			Exhausted = false, -- se quedó sin stamina: no puede correr hasta recuperarse
+			LastSprint = 0,
+			PoseBase = nil, -- posición original de las articulaciones (para la postura de carrera)
+			PoseCharacter = nil,
 		}
 		states[player] = state
 	end
@@ -379,6 +387,46 @@ local function setBerserkVisual(character, enabled)
 	end
 end
 
+-- Postura de carrera (R6): se inclina hacia delante y echa los brazos atrás.
+-- Se hace en el servidor para que todos los jugadores la vean.
+local POSE_TWEEN = TweenInfo.new(0.2, Enum.EasingStyle.Quad)
+local RUN_POSE = {
+	RootJoint = CFrame.Angles(math.rad(-18), 0, 0), -- inclinarse
+	Neck = CFrame.Angles(math.rad(12), 0, 0), -- mirar al frente
+	RightShoulder = CFrame.Angles(math.rad(-45), 0, 0), -- brazos atrás
+	LeftShoulder = CFrame.Angles(math.rad(-45), 0, 0),
+}
+
+local function setRunPose(state, character, running)
+	local torso = character:FindFirstChild("Torso")
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if not torso or not root then
+		return
+	end
+	local joints = {
+		RootJoint = root:FindFirstChild("RootJoint"),
+		Neck = torso:FindFirstChild("Neck"),
+		RightShoulder = torso:FindFirstChild("Right Shoulder"),
+		LeftShoulder = torso:FindFirstChild("Left Shoulder"),
+	}
+	-- Guardar la postura original la primera vez (después de escalar al Ogre)
+	if state.PoseCharacter ~= character then
+		state.PoseCharacter = character
+		state.PoseBase = {}
+		for name, joint in joints do
+			state.PoseBase[name] = joint.C0
+		end
+	end
+
+	for name, joint in joints do
+		local base = state.PoseBase[name]
+		if base then
+			local goal = if running then CFrame.new(base.Position) * RUN_POSE[name] * base.Rotation else base
+			TweenService:Create(joint, POSE_TWEEN, { C0 = goal }):Play()
+		end
+	end
+end
+
 local function tick(player, dt, now)
 	local slot = PlayerData.Get(player)
 	local character, humanoid = getAliveCharacter(player)
@@ -415,8 +463,44 @@ local function tick(player, dt, now)
 		humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + humanoid.MaxHealth * race.HealthRegen * dt)
 	end
 
+	-- Zona segura: te curas
+	local root = character.HumanoidRootPart
+	local inSafeZone = Config.IsInSafeZone(root.Position)
+	if inSafeZone and humanoid.Health < humanoid.MaxHealth then
+		humanoid.Health =
+			math.min(humanoid.MaxHealth, humanoid.Health + humanoid.MaxHealth * Config.SafeZone.HealPerSecond * dt)
+	end
+
+	-- Correr y stamina
+	local stamina = race.Stamina
+	local velocity = root.AssemblyLinearVelocity
+	local moving = Vector3.new(velocity.X, 0, velocity.Z).Magnitude > 2
+	local sprinting = state.WantSprint and moving and not state.Exhausted and state.Stamina > 0
+	if sprinting then
+		state.Stamina = math.max(0, state.Stamina - stamina.Drain * dt)
+		state.LastSprint = now
+		if state.Stamina <= 0 then
+			state.Exhausted = true
+			sprinting = false
+		end
+	elseif now - state.LastSprint >= Config.Sprint.RegenDelay then
+		state.Stamina = math.min(stamina.Max, state.Stamina + stamina.Regen * dt)
+	end
+	if state.Exhausted and state.Stamina >= stamina.Max * Config.Sprint.ExhaustedRecover then
+		state.Exhausted = false
+	end
+	if sprinting ~= state.Sprinting then
+		state.Sprinting = sprinting
+		if not race.CanAbsorb then
+			setRunPose(state, character, sprinting)
+		end
+	end
+
 	-- Velocidad
 	local speed = Config.WalkSpeed(slot.Race)
+	if sprinting then
+		speed *= stamina.SpeedMult
+	end
 	if state.Berserk and race.Berserk then
 		speed *= race.Berserk.SpeedMult
 	end
@@ -434,6 +518,11 @@ local function tick(player, dt, now)
 	player:SetAttribute("Overloaded", overloaded)
 	player:SetAttribute("Berserk", state.Berserk)
 	player:SetAttribute("InCombat", not outOfCombat)
+	player:SetAttribute("Stamina", math.floor(state.Stamina))
+	player:SetAttribute("MaxStamina", stamina.Max)
+	player:SetAttribute("Sprinting", sprinting)
+	player:SetAttribute("Exhausted", state.Exhausted)
+	player:SetAttribute("InSafeZone", inSafeZone)
 end
 
 local function onCharacterAdded(player, character)
@@ -442,11 +531,16 @@ local function onCharacterAdded(player, character)
 	state.Heat = 0
 	state.OverloadUntil = 0
 	state.LastCombat = 0
+	state.Sprinting = false
+	state.WantSprint = false
+	state.Exhausted = false
+	state.PoseCharacter = nil
 
-	-- Empezar con el maná lleno
+	-- Empezar con el maná y la stamina llenos
 	local slot = PlayerData.Get(player)
 	if slot then
 		state.Mana = Config.MaxMana(slot.Level, slot.Race)
+		state.Stamina = Config.Races[slot.Race].Stamina.Max
 	end
 
 	-- Recibir daño cuenta como estar en combate
@@ -466,6 +560,9 @@ function Combat.Start()
 	Remotes.Attack.OnServerEvent:Connect(onAttack)
 	Remotes.Cast.OnServerEvent:Connect(onCast)
 	Remotes.Absorb.OnServerEvent:Connect(onAbsorb)
+	Remotes.Sprint.OnServerEvent:Connect(function(player, wantsToSprint)
+		getState(player).WantSprint = wantsToSprint == true
+	end)
 
 	local function onPlayerAdded(player)
 		player.CharacterAdded:Connect(function(character)

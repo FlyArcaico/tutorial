@@ -414,7 +414,8 @@ local function findTarget(state)
 		local character = player.Character
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 		local root = character and character:FindFirstChild("HumanoidRootPart")
-		if humanoid and root and humanoid.Health > 0 then
+		-- Los jugadores dentro de la zona segura no pueden ser atacados
+		if humanoid and root and humanoid.Health > 0 and not Config.IsInSafeZone(root.Position) then
 			local distance = (root.Position - state.Root.Position).Magnitude
 			if distance < bestDistance then
 				bestCharacter, bestDistance = character, distance
@@ -472,6 +473,16 @@ local function updateMonster(state, now)
 		return
 	end
 	humanoid.WalkSpeed = Config.BaseSpeed * (if state.SlowUntil > now then state.SlowMult else 1)
+
+	-- Zona segura: si un monstruo se acerca demasiado, sale de ella
+	local safe = Config.SafeZone
+	local fromSafe = state.Root.Position - safe.Center
+	fromSafe = Vector3.new(fromSafe.X, 0, fromSafe.Z)
+	if fromSafe.Magnitude < safe.Radius + 4 then
+		local away = if fromSafe.Magnitude > 0.1 then fromSafe.Unit else Vector3.new(0, 0, -1)
+		humanoid:MoveTo(safe.Center + away * (safe.Radius + 15))
+		return
+	end
 
 	local zone = state.Zone
 	local awayFromHome = (state.Root.Position - zone.Center).Magnitude > zone.Radius + 30

@@ -25,6 +25,9 @@ local Remotes = {
 	Absorb = make("RemoteEvent", "Absorb"), -- cliente -> servidor: absorber
 	Cast = make("RemoteEvent", "Cast"), -- cliente -> servidor: usar un ataque especial (Air Manipulation...)
 	Notify = make("RemoteEvent", "Notify"), -- servidor -> cliente: mostrar un mensaje
+	Sprint = make("RemoteEvent", "Sprint"), -- cliente -> servidor: empezar/dejar de correr
+	Quest = make("RemoteFunction", "Quest"), -- hablar con el NPC: ver, aceptar, recoger, abandonar
+	DevLevel = make("RemoteEvent", "DevLevel"), -- modo prueba: subir/bajar 5 niveles
 }
 
 folder.Parent = ReplicatedStorage

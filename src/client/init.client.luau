@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
+local Dialog = require(script.Dialog)
 local Hud = require(script.Hud)
 local Menu = require(script.Menu)
 
@@ -15,6 +16,7 @@ end)
 
 Hud.Init(function()
 	returnToMenuRemote:FireServer()
+	Dialog.Close()
 	Hud.Hide()
 	Menu.Open()
 end)

@@ -47,6 +47,24 @@ Config.Overload = {
 	SpeedMult = 0.75,
 }
 
+-- Correr (mantener Control izquierdo). Cada raza tiene su propia stamina (ver Config.Races).
+Config.Sprint = {
+	RegenDelay = 0.8, -- segundos sin correr antes de recuperar stamina
+	ExhaustedRecover = 0.3, -- si te quedas sin stamina, no puedes correr hasta recuperar este %
+}
+
+-- Zona segura alrededor del spawn: los monstruos no entran ni atacan dentro, y te curas.
+Config.SafeZone = {
+	Center = Vector3.new(0, 0, 0),
+	Radius = 40,
+	HealPerSecond = 0.05, -- fracción de vida por segundo
+}
+
+function Config.IsInSafeZone(position)
+	local offset = position - Config.SafeZone.Center
+	return Vector3.new(offset.X, 0, offset.Z).Magnitude <= Config.SafeZone.Radius
+end
+
 --------------------------------------------------------------------------------
 -- Rarezas y razas
 --------------------------------------------------------------------------------
@@ -105,6 +123,7 @@ Config.Races = {
 		},
 		CanAbsorb = true,
 		MaxMana = 120,
+		Stamina = { Max = 110, Drain = 18, Regen = 20, SpeedMult = 1.5 },
 		PhysicalResist = 0.25,
 		HealthRegen = 0.03, -- fracción de vida por segundo fuera de combate
 	},
@@ -168,6 +187,7 @@ Config.Races = {
 		PhysicalResist = 0.15,
 		BodyScale = 1.8,
 		MaxMana = 60,
+		Stamina = { Max = 80, Drain = 24, Regen = 16, SpeedMult = 1.35 }, -- pesado: corre menos tiempo
 		Berserk = { Threshold = 0.5, DamageMult = 1.3, SpeedMult = 1.1 },
 	},
 	Elf = {
@@ -180,6 +200,7 @@ Config.Races = {
 		SpeedMult = 1.15,
 		DamageMult = 1.1,
 		MaxMana = 150,
+		Stamina = { Max = 130, Drain = 17, Regen = 20, SpeedMult = 1.55 }, -- ágil: corre más y más rápido
 		ElfEars = true,
 	},
 	MajorElf = {
@@ -204,6 +225,7 @@ Config.Races = {
 		GoldMult = 3,
 		BodyScale = 1.15,
 		MaxMana = 220,
+		Stamina = { Max = 140, Drain = 16, Regen = 22, SpeedMult = 1.55 },
 		ElfEars = true,
 		ElfHat = true,
 		Abilities = { "AirSlash" },
@@ -233,6 +255,8 @@ for _, race in Config.Races do
 	race.MaxMana = race.MaxMana or 100
 	race.ManaRegenOutOfCombat = race.ManaRegenOutOfCombat or 0.03
 	race.Abilities = race.Abilities or {}
+	-- Stamina base (Human, Invocados): 100 de stamina, corre a x1,45 unos 5 segundos
+	race.Stamina = race.Stamina or { Max = 100, Drain = 20, Regen = 18, SpeedMult = 1.45 }
 	race.CanAbsorb = race.CanAbsorb == true
 end
 
@@ -591,6 +615,76 @@ end
 
 function Config.HasAbility(raceId, abilityId)
 	return table.find(Config.Races[raceId].Abilities, abilityId) ~= nil
+end
+
+--------------------------------------------------------------------------------
+-- Misiones (NPC en la zona segura)
+--------------------------------------------------------------------------------
+
+Config.QuestGiver = {
+	Name = "Maestro Bram",
+	Position = Vector3.new(-16, 0, -14), -- dentro de la zona segura
+	TalkDistance = 14,
+}
+
+-- Cada misión se desbloquea a un nivel. Se pueden repetir.
+-- Recompensa = Base + un extra por cada monstruo según su nivel (más nivel, más premio).
+Config.Quests = {
+	{
+		Id = "Bats",
+		Title = "Plaga de murciélagos",
+		Description = "Los murciélagos de la pradera asustan a los viajeros. ¡Derrota a 5!",
+		Monster = "Bat",
+		Count = 5,
+		MinLevel = 1,
+		BaseXP = 60,
+		BaseGold = 10,
+	},
+	{
+		Id = "Wolves",
+		Title = "Lobos hambrientos",
+		Description = "Una manada de lobos ataca a los animales del pueblo. Derrota a 5 lobos.",
+		Monster = "Wolf",
+		Count = 5,
+		MinLevel = 5,
+		BaseXP = 250,
+		BaseGold = 35,
+	},
+	{
+		Id = "Golems",
+		Title = "Gigantes de piedra",
+		Description = "Los gólems bloquean el camino de las colinas. Derrota a 5 gólems.",
+		Monster = "Golem",
+		Count = 5,
+		MinLevel = 10,
+		BaseXP = 800,
+		BaseGold = 90,
+	},
+	{
+		Id = "GolemHunt",
+		Title = "Cazador de gólems",
+		Description = "Solo un verdadero héroe puede limpiar las colinas. Derrota a 10 gólems.",
+		Monster = "Golem",
+		Count = 10,
+		MinLevel = 15,
+		BaseXP = 2000,
+		BaseGold = 220,
+	},
+}
+
+-- Extra de recompensa por cada monstruo de la misión
+Config.QuestKillBonus = {
+	XPMult = 0.5, -- 50% de la XP del monstruo (según su nivel)
+	GoldPerLevel = 1, -- +1 de oro por cada nivel del monstruo
+}
+
+function Config.GetQuest(questId)
+	for _, quest in Config.Quests do
+		if quest.Id == questId then
+			return quest
+		end
+	end
+	return nil
 end
 
 return Config

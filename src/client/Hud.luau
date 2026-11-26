@@ -15,6 +15,8 @@ local attackRemote = remotes:WaitForChild("Attack")
 local absorbRemote = remotes:WaitForChild("Absorb")
 local castRemote = remotes:WaitForChild("Cast")
 local notifyRemote = remotes:WaitForChild("Notify")
+local sprintRemote = remotes:WaitForChild("Sprint")
+local devLevelRemote = remotes:WaitForChild("DevLevel")
 
 local player = Players.LocalPlayer
 local Colors = UI.Colors
@@ -75,7 +77,7 @@ local function bar(parent, position, height, fillTop, fillBottom)
 	local text = UI.label(back, {
 		Size = UDim2.fromScale(1, 1),
 		Font = Enum.Font.GothamBold,
-		TextSize = height - 4,
+		TextSize = math.max(10, height - 4),
 		TextStrokeTransparency = 0.4,
 		ZIndex = 2,
 		Text = "",
@@ -89,7 +91,7 @@ end
 
 local card, cardStroke = panel(gui, {
 	Position = UDim2.fromOffset(16, 16),
-	Size = UDim2.fromOffset(300, 140),
+	Size = UDim2.fromOffset(300, 148),
 })
 
 local rarityPill = create("Frame", {
@@ -138,15 +140,17 @@ local nameLabel = UI.label(card, {
 })
 
 local hpFill, hpText =
-	bar(card, UDim2.fromOffset(12, 68), 20, Color3.fromRGB(110, 230, 120), Color3.fromRGB(40, 160, 70))
+	bar(card, UDim2.fromOffset(12, 66), 18, Color3.fromRGB(110, 230, 120), Color3.fromRGB(40, 160, 70))
 local manaFill, manaText =
-	bar(card, UDim2.fromOffset(12, 92), 16, Color3.fromRGB(120, 140, 255), Color3.fromRGB(70, 60, 220))
+	bar(card, UDim2.fromOffset(12, 88), 14, Color3.fromRGB(120, 140, 255), Color3.fromRGB(70, 60, 220))
+local staminaFill, staminaText =
+	bar(card, UDim2.fromOffset(12, 106), 14, Color3.fromRGB(240, 240, 120), Color3.fromRGB(200, 170, 40))
 local xpFill, xpText =
-	bar(card, UDim2.fromOffset(12, 112), 14, Color3.fromRGB(255, 220, 110), Color3.fromRGB(220, 160, 40))
+	bar(card, UDim2.fromOffset(12, 124), 12, Color3.fromRGB(230, 150, 255), Color3.fromRGB(150, 70, 220))
 
 -- Estados (debajo de la tarjeta): Berserker, Sobrecarga, Regenerando
 local statusRow = create("Frame", {
-	Position = UDim2.fromOffset(16, 162),
+	Position = UDim2.fromOffset(16, 170),
 	Size = UDim2.fromOffset(300, 24),
 	BackgroundTransparency = 1,
 }, gui)
@@ -182,10 +186,46 @@ end
 local berserkChip = statusChip(1, "💢 BERSERKER", Color3.fromRGB(255, 60, 50))
 local overloadChip = statusChip(2, "⚡ SOBRECARGA", Color3.fromRGB(255, 150, 50))
 local regenChip = statusChip(3, "✚ Regenerando", Color3.fromRGB(90, 220, 120))
+local safeChip = statusChip(4, "🛡 Zona segura", Color3.fromRGB(120, 230, 170))
+local exhaustedChip = statusChip(5, "💦 Agotado", Color3.fromRGB(200, 200, 120))
+
+-- Progreso de la misión (debajo de los estados)
+local questPanel = panel(gui, {
+	Position = UDim2.fromOffset(16, 200),
+	Size = UDim2.fromOffset(300, 0),
+	AutomaticSize = Enum.AutomaticSize.Y,
+	Visible = false,
+})
+create("UIPadding", {
+	PaddingLeft = UDim.new(0, 12),
+	PaddingRight = UDim.new(0, 12),
+	PaddingTop = UDim.new(0, 8),
+	PaddingBottom = UDim.new(0, 10),
+}, questPanel)
+local questLabel = UI.label(questPanel, {
+	Size = UDim2.fromScale(1, 0),
+	AutomaticSize = Enum.AutomaticSize.Y,
+	TextSize = 14,
+	RichText = true,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	Text = "",
+})
+local questBarBack = create("Frame", {
+	Size = UDim2.new(1, 0, 0, 8),
+	BackgroundColor3 = Color3.fromRGB(12, 13, 22),
+	LayoutOrder = 2,
+}, questPanel)
+UI.round(questBarBack, 4)
+local questBarFill = create("Frame", {
+	Size = UDim2.fromScale(0, 1),
+	BackgroundColor3 = Color3.fromRGB(255, 205, 70),
+}, questBarBack)
+UI.round(questBarFill, 4)
+create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, questPanel)
 
 -- Barra de "calor" de la Sobrecarga de Energía (solo Invocados)
 local heatBar = create("Frame", {
-	Position = UDim2.fromOffset(16, 192),
+	Position = UDim2.fromOffset(16, 200),
 	Size = UDim2.fromOffset(300, 8),
 	BackgroundColor3 = Color3.fromRGB(12, 13, 22),
 	Visible = false,
@@ -217,6 +257,38 @@ local menuButton = UI.button(gui, "☰  Menú", Color3.fromRGB(45, 48, 75), {
 	TextSize = 16,
 })
 create("UIStroke", { Color = Color3.fromRGB(85, 95, 140), Thickness = 1.5 }, menuButton)
+
+-- Modo prueba: botones para bajar/subir 5 niveles (solo tú)
+local devPanel = create("Frame", {
+	AnchorPoint = Vector2.new(1, 0),
+	Position = UDim2.new(1, -144, 0, 16),
+	Size = UDim2.fromOffset(0, 38),
+	AutomaticSize = Enum.AutomaticSize.X,
+	BackgroundTransparency = 1,
+	Visible = false,
+}, gui)
+create("UIListLayout", {
+	FillDirection = Enum.FillDirection.Horizontal,
+	Padding = UDim.new(0, 6),
+	SortOrder = Enum.SortOrder.LayoutOrder,
+}, devPanel)
+for order, delta in { -5, 5 } do
+	local devButton =
+		UI.button(devPanel, (if delta > 0 then "+" else "") .. delta .. " Nv", Color3.fromRGB(150, 90, 30), {
+			Size = UDim2.fromOffset(72, 38),
+			TextSize = 15,
+			LayoutOrder = order,
+		})
+	create("UIStroke", { Color = Color3.fromRGB(255, 200, 90), Thickness = 1.5 }, devButton)
+	devButton.Activated:Connect(function()
+		devLevelRemote:FireServer(delta)
+	end)
+end
+local function updateDevPanel()
+	devPanel.Visible = player:GetAttribute("IsTester") == true
+end
+player:GetAttributeChangedSignal("IsTester"):Connect(updateDevPanel)
+updateDevPanel()
 
 local infoPanel = panel(gui, {
 	AnchorPoint = Vector2.new(1, 0),
@@ -607,6 +679,25 @@ makeAction("Absorb", 3, "🌀", "Absorber", "F", Color3.fromRGB(70, 140, 235), 0
 end)
 makeAction("Dash", 4, "💨", "Embestir", "Q", Color3.fromRGB(170, 130, 90), Config.Skills.Dash.Cooldown, dash)
 
+-- Correr: mantener Control izquierdo (en móvil, el botón activa/desactiva)
+local wantsSprint = false
+local function setSprint(enabled)
+	if wantsSprint ~= enabled then
+		wantsSprint = enabled
+		sprintRemote:FireServer(enabled)
+	end
+end
+local sprintAction = makeAction("Sprint", 5, "🏃", "Correr", "Ctrl", Color3.fromRGB(200, 170, 50), 0, function()
+	setSprint(not wantsSprint)
+end)
+sprintAction.Button.Visible = UserInputService.TouchEnabled
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.LeftControl then
+		setSprint(false)
+	end
+end)
+
 for _, action in orderedActions do
 	action.Button.Activated:Connect(function()
 		trigger(action)
@@ -625,6 +716,10 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		trigger(actions.Attack)
+		return
+	end
+	if input.KeyCode == Enum.KeyCode.LeftControl then
+		setSprint(true)
 		return
 	end
 	-- Usar el botón visible que tenga esa tecla
@@ -647,7 +742,15 @@ local FAST_ATTRIBUTES = {
 	Overloaded = true,
 	Berserk = true,
 	InCombat = true,
+	Stamina = true,
+	MaxStamina = true,
+	Sprinting = true,
+	Exhausted = true,
+	InSafeZone = true,
 }
+
+local camera = workspace.CurrentCamera
+local lastSprinting = false
 
 local function refreshFast()
 	local mana = player:GetAttribute("Mana") or 0
@@ -659,9 +762,30 @@ local function refreshFast()
 	berserkChip.Visible = player:GetAttribute("Berserk") == true
 	overloadChip.Visible = player:GetAttribute("Overloaded") == true
 	regenChip.Visible = race.HealthRegen > 0 and player:GetAttribute("InCombat") == false
+	safeChip.Visible = player:GetAttribute("InSafeZone") == true
+	exhaustedChip.Visible = player:GetAttribute("Exhausted") == true
 
 	heatBar.Visible = race.Overload == true
 	heatFill.Size = UDim2.fromScale(math.clamp(player:GetAttribute("Heat") or 0, 0, 1), 1)
+	questPanel.Position = UDim2.fromOffset(16, if heatBar.Visible then 230 else 200)
+
+	-- Stamina
+	local stamina = player:GetAttribute("Stamina") or 0
+	local maxStamina = math.max(player:GetAttribute("MaxStamina") or 1, 1)
+	staminaFill.Size = UDim2.fromScale(math.clamp(stamina / maxStamina, 0, 1), 1)
+	staminaText.Text = (if player:GetAttribute("Exhausted") then "Agotado  " else "Stamina  ")
+		.. tostring(stamina)
+		.. " / "
+		.. tostring(maxStamina)
+
+	-- Al correr, la cámara se abre un poco para dar sensación de velocidad
+	local sprinting = player:GetAttribute("Sprinting") == true
+	if sprinting ~= lastSprinting then
+		lastSprinting = sprinting
+		camera = workspace.CurrentCamera
+		TweenService:Create(camera, TweenInfo.new(0.25), { FieldOfView = if sprinting then 80 else 70 }):Play()
+		sprintAction.Button.BackgroundTransparency = if sprinting then 0.4 else 0
+	end
 
 	-- Habilidades sin maná suficiente: coste en rojo
 	for _, action in orderedActions do
@@ -742,6 +866,36 @@ local function refresh()
 	end
 	actions.Absorb.Button.Visible = race.CanAbsorb
 	actions.Dash.Button.Visible = race.CanAbsorb and skills.Dash == true
+
+	-- Misión
+	local questId = player:GetAttribute("QuestId") or ""
+	local quest = if questId ~= "" then Config.GetQuest(questId) else nil
+	questPanel.Visible = quest ~= nil
+	if quest then
+		local kills = math.min(player:GetAttribute("QuestKills") or 0, quest.Count)
+		local monsterName = Config.Monsters[quest.Monster].DisplayName
+		questBarFill.Size = UDim2.fromScale(kills / quest.Count, 1)
+		if kills >= quest.Count then
+			questBarFill.BackgroundColor3 = Color3.fromRGB(110, 230, 120)
+			questLabel.Text = '<font color="#FFD25A"><b>📜 '
+				.. quest.Title
+				.. "</b></font>\n"
+				.. '<font color="#6EE678"><b>✔ ¡Completada!</b></font> Vuelve con '
+				.. Config.QuestGiver.Name
+				.. " para tu recompensa"
+		else
+			questBarFill.BackgroundColor3 = Color3.fromRGB(255, 205, 70)
+			questLabel.Text = '<font color="#FFD25A"><b>📜 '
+				.. quest.Title
+				.. "</b></font>\n"
+				.. monsterName
+				.. ": <b>"
+				.. kills
+				.. " / "
+				.. quest.Count
+				.. "</b>"
+		end
+	end
 
 	-- Oro
 	local gold = player:GetAttribute("Gold") or 0
@@ -839,6 +993,7 @@ function Hud.Show()
 end
 
 function Hud.Hide()
+	setSprint(false)
 	gui.Enabled = false
 	deathLabel.Visible = false
 end

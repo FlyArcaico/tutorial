@@ -134,6 +134,11 @@ local function updateAttributes(player, slot)
 	player:SetAttribute("Form", Config.GetBody(slot.Race, slot.Level).Name)
 	player:SetAttribute("Skills", table.concat(skills, ","))
 
+	-- Misión activa (el HUD muestra el progreso arriba a la izquierda)
+	local quest = slot.Quest and Config.GetQuest(slot.Quest.Id)
+	player:SetAttribute("QuestId", if quest then quest.Id else "")
+	player:SetAttribute("QuestKills", if quest then slot.Quest.Kills else 0)
+
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if leaderstats then
 		leaderstats.Level.Value = slot.Level
@@ -645,6 +650,22 @@ function PlayerData.OnMonsterKilled(player, monsterId, level)
 	local race = Config.Races[slot.Race]
 	local gold = Config.GoldForKill(slot.Race, monsterId)
 	slot.Gold += gold
+
+	-- Progreso de la misión
+	local quest = slot.Quest and Config.GetQuest(slot.Quest.Id)
+	if quest and quest.Monster == monsterId and slot.Quest.Kills < quest.Count then
+		slot.Quest.Kills += 1
+		slot.Quest.BonusXP += Config.MonsterStats(monsterId, level).XP * Config.QuestKillBonus.XPMult
+		slot.Quest.BonusGold += level * Config.QuestKillBonus.GoldPerLevel
+		if slot.Quest.Kills >= quest.Count then
+			notify(
+				player,
+				"¡Misión completada! Vuelve con " .. Config.QuestGiver.Name .. " para tu recompensa",
+				Color3.fromRGB(255, 215, 90)
+			)
+		end
+	end
+
 	updateAttributes(player, slot)
 
 	if race.CanAbsorb then
@@ -683,6 +704,112 @@ function PlayerData.Absorb(player, monsterId, level)
 
 	PlayerData.AddXP(player, xp)
 	updateAttributes(player, slot)
+end
+
+--------------------------------------------------------------------------------
+-- Misiones del NPC
+--------------------------------------------------------------------------------
+
+local function questReward(slot)
+	local quest = Config.GetQuest(slot.Quest.Id)
+	return math.floor(quest.BaseXP + slot.Quest.BonusXP), math.floor(quest.BaseGold + slot.Quest.BonusGold)
+end
+
+local function isNearQuestGiver(player)
+	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if not root then
+		return false
+	end
+	return (root.Position - Config.QuestGiver.Position).Magnitude <= Config.QuestGiver.TalkDistance + 4
+end
+
+-- Estado de misiones para el diálogo del cliente
+local function questState(slot)
+	if not slot.Quest or not Config.GetQuest(slot.Quest.Id) then
+		return { State = "None", Level = slot.Level }
+	end
+	local quest = Config.GetQuest(slot.Quest.Id)
+	local xp, gold = questReward(slot)
+	return {
+		State = if slot.Quest.Kills >= quest.Count then "Done" else "Active",
+		Level = slot.Level,
+		QuestId = quest.Id,
+		Kills = slot.Quest.Kills,
+		RewardXP = xp,
+		RewardGold = gold,
+	}
+end
+
+-- action: "Get", "Accept" (questId), "Claim", "Abandon"
+function PlayerData.QuestAction(player, action, questId)
+	local slot = PlayerData.Get(player)
+	if not slot then
+		return fail("Entra al juego primero")
+	end
+	if action == "Get" then
+		return { Ok = true, Quest = questState(slot) }
+	end
+	if not isNearQuestGiver(player) then
+		return fail("Estás demasiado lejos de " .. Config.QuestGiver.Name)
+	end
+
+	if action == "Accept" then
+		local quest = type(questId) == "string" and Config.GetQuest(questId)
+		if not quest then
+			return fail("Misión no válida")
+		end
+		if slot.Quest then
+			return fail("Ya tienes una misión activa")
+		end
+		if slot.Level < quest.MinLevel then
+			return fail("Necesitas nivel " .. quest.MinLevel)
+		end
+		slot.Quest = { Id = quest.Id, Kills = 0, BonusXP = 0, BonusGold = 0 }
+		notify(player, "Misión aceptada: " .. quest.Title, Color3.fromRGB(255, 215, 90))
+	elseif action == "Claim" then
+		local quest = slot.Quest and Config.GetQuest(slot.Quest.Id)
+		if not quest or slot.Quest.Kills < quest.Count then
+			return fail("Todavía no has terminado la misión")
+		end
+		local xp, gold = questReward(slot)
+		slot.Quest = nil
+		slot.Gold += gold
+		notify(player, "¡Recompensa: +" .. xp .. " XP y +" .. gold .. " oro!", Color3.fromRGB(255, 215, 90))
+		PlayerData.AddXP(player, xp)
+	elseif action == "Abandon" then
+		slot.Quest = nil
+		notify(player, "Misión abandonada", Color3.fromRGB(180, 180, 180))
+	else
+		return fail("Acción no válida")
+	end
+
+	updateAttributes(player, slot)
+	return { Ok = true, Quest = questState(slot) }
+end
+
+--------------------------------------------------------------------------------
+-- Modo prueba: subir o bajar niveles
+--------------------------------------------------------------------------------
+
+function PlayerData.DevChangeLevel(player, delta)
+	local slot = PlayerData.Get(player)
+	if not slot or not isTester(player) or (delta ~= 5 and delta ~= -5) then
+		return
+	end
+
+	local oldBody = Config.GetBody(slot.Race, slot.Level)
+	slot.Level = math.max(1, slot.Level + delta)
+	slot.XP = 0
+	updateAttributes(player, slot)
+
+	local newBody = Config.GetBody(slot.Race, slot.Level)
+	if Config.Races[slot.Race].CanAbsorb and newBody.Name ~= oldBody.Name and player.Character then
+		applySlimeBody(player.Character, newBody)
+		notify(player, "Modo prueba: nivel " .. slot.Level .. " (" .. newBody.Name .. ")", PURPLE)
+	else
+		notify(player, "Modo prueba: nivel " .. slot.Level, PURPLE)
+	end
+	applyStats(player, slot, true)
 end
 
 -- La absorción falló: la esencia se pierde, pero da un poco de XP
