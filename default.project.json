@@ -21,6 +21,12 @@
       }
     },
 
+    "ServerStorage": {
+      "MonsterModels": {
+        "$path": "assets/models"
+      }
+    },
+
     "StarterPlayer": {
       "$properties": {
         "GameSettingsAvatar": "R15",

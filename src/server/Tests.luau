@@ -6,6 +6,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local SlimeModel = require(ReplicatedStorage.Shared.SlimeModel)
 
+local MeshRig = require(script.Parent.MeshRig)
+
 local Tests = {}
 
 local function finite(number)
@@ -96,7 +98,78 @@ function Tests.Run(modules)
 
 	-- Goblin: rig R15 con su diseño y sus animaciones; murciélagos y lobos retirados
 	local goblin = Config.Monsters.Goblin
-	check(goblin ~= nil and goblin.Rig == "R15" and goblin.AnimSet == "Goblin", "Goblin: falta configurar su rig")
+	check(
+		goblin ~= nil and goblin.Rig == "R15" and goblin.AnimSet ~= nil and goblin.FallbackAnimSet ~= nil,
+		"Goblin: falta configurar su rig"
+	)
+
+	-- Monstruos de Blender: medidas completas y, si el modelo está importado, montarlo
+	local R15 = {
+		"LowerTorso",
+		"UpperTorso",
+		"Head",
+		"LeftUpperArm",
+		"LeftLowerArm",
+		"LeftHand",
+		"RightUpperArm",
+		"RightLowerArm",
+		"RightHand",
+		"LeftUpperLeg",
+		"LeftLowerLeg",
+		"LeftFoot",
+		"RightUpperLeg",
+		"RightLowerLeg",
+		"RightFoot",
+	}
+	for monsterId, def in Config.Monsters do
+		if def.MeshModel then
+			local dataModule = script.Parent.MonsterRigs:FindFirstChild(def.MeshModel)
+			check(dataModule ~= nil, monsterId .. ": faltan las medidas de su modelo 3D")
+			if dataModule then
+				local data = require(dataModule)
+				for _, partName in R15 do
+					check(data.Parts[partName] ~= nil, monsterId .. ": a su modelo le falta " .. partName)
+				end
+				check(#data.Joints == 15, monsterId .. ": su modelo debería tener 15 articulaciones")
+			end
+			if MeshRig.IsReady(def.MeshModel) then
+				local model = Instance.new("Model")
+				local root = Instance.new("Part")
+				root.Name = "HumanoidRootPart"
+				root.Anchored = true
+				root.CFrame = CFrame.new(0, 500, 0)
+				root.Parent = model
+				local ok, parts = pcall(MeshRig.Build, def.MeshModel, root, 1, model)
+				check(ok, monsterId .. ": no se pudo montar su modelo 3D: " .. tostring(parts))
+				if ok then
+					local motors = 0
+					for _, descendant in model:GetDescendants() do
+						if descendant:IsA("Motor6D") then
+							motors += 1
+						end
+					end
+					check(motors == 15, monsterId .. ": su modelo 3D debería tener 15 articulaciones")
+					local function rel(name)
+						return root.CFrame:PointToObjectSpace(parts[name].Position)
+					end
+					check(rel("Head").Y > rel("LowerTorso").Y + 1, monsterId .. ": la cabeza no queda arriba")
+					check(rel("Head").Z < rel("LowerTorso").Z, monsterId .. ": no mira hacia delante")
+					check(rel("RightHand").X > 0, monsterId .. ": la mano derecha queda a la izquierda")
+					check(rel("LeftFoot").Y < rel("LowerTorso").Y - 0.6, monsterId .. ": los pies no quedan abajo")
+				end
+				model:Destroy()
+				print("[Autocomprobación] · " .. monsterId .. ": se usa su modelo 3D de Blender")
+			else
+				print(
+					"[Autocomprobación] · "
+						.. monsterId
+						.. ": modelo 3D no importado ("
+						.. tostring(MeshRig.Problem(def.MeshModel))
+						.. "); se usa el diseño de piezas"
+				)
+			end
+		end
+	end
 	check(Config.IsMonsterActive("Goblin"), "Goblin: no aparece en ninguna zona")
 	check(
 		not Config.IsMonsterActive("Bat") and not Config.IsMonsterActive("Wolf"),

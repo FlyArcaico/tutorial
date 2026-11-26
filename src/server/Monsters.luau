@@ -8,6 +8,7 @@ local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Config)
+local MeshRig = require(script.Parent.MeshRig)
 
 local Monsters = {}
 
@@ -459,6 +460,12 @@ builders.GoblinTier1 = function(root, add, s, color, eyeColor)
 	end
 end
 
+-- Monstruos hechos en Blender: el modelo importado se monta con sus articulaciones R15
+builders.Mesh = function(root, _add, s, _color, _eyeColor, model, def)
+	root.Transparency = 1
+	MeshRig.Build(def.MeshModel, root, s, model)
+end
+
 --------------------------------------------------------------------------------
 -- Barra de vida, números de daño y esencias
 --------------------------------------------------------------------------------
@@ -709,7 +716,12 @@ local function spawnMonster(monsterId, zone, levels)
 		part.Parent = model
 		return part
 	end
-	builders[def.Builder or monsterId](root, add, s, color, def.EyeColor)
+	-- Modelo 3D de Blender si está importado; si no, el diseño de piezas de siempre
+	local builderId, animSet = def.Builder or monsterId, def.AnimSet
+	if def.MeshModel and not MeshRig.IsReady(def.MeshModel) then
+		builderId, animSet = def.FallbackBuilder, def.FallbackAnimSet or animSet
+	end
+	builders[builderId](root, add, s, color, def.EyeColor, model, def)
 
 	-- Altura de la barra de vida: justo encima de la pieza más alta
 	local boxCFrame, boxSize = model:GetBoundingBox()
@@ -719,7 +731,7 @@ local function spawnMonster(monsterId, zone, levels)
 	-- desplazamientos de las animaciones (agacharse, caer muerto) a su tamaño.
 	if def.Rig == "R15" then
 		model:SetAttribute("Rig", "R15")
-		model:SetAttribute("AnimSet", def.AnimSet)
+		model:SetAttribute("AnimSet", animSet)
 		model:SetAttribute("AnimScale", (hipHeight + size.Y / 2) / 2.9)
 	end
 
@@ -1120,7 +1132,11 @@ end
 -- Para la autocomprobación: ¿tiene diseño este monstruo?
 function Monsters.HasBuilder(monsterId)
 	local def = Config.Monsters[monsterId]
-	return def ~= nil and builders[def.Builder or monsterId] ~= nil
+	if def == nil or builders[def.Builder or monsterId] == nil then
+		return false
+	end
+	-- Los modelos de Blender necesitan un diseño de piezas por si no están importados
+	return def.MeshModel == nil or builders[def.FallbackBuilder] ~= nil
 end
 
 function Monsters.Start()

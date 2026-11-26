@@ -686,8 +686,13 @@ Config.Monsters = {
 	Goblin = {
 		DisplayName = "Goblin",
 		Species = "Goblin",
-		Builder = "GoblinTier1", -- diseño (Monsters.luau)
-		AnimSet = "Goblin", -- animaciones (AnimationData.Monster)
+		-- Modelo 3D hecho en Blender (art/goblin). Si no está importado en
+		-- ServerStorage.MonsterModels, se usa el diseño de piezas de antes.
+		Builder = "Mesh",
+		MeshModel = "GoblinTier1",
+		AnimSet = "GoblinMesh", -- animaciones (AnimationData.Monster)
+		FallbackBuilder = "GoblinTier1", -- diseño de piezas (Monsters.luau)
+		FallbackAnimSet = "Goblin",
 		Rig = "R15",
 		Health = 30,
 		Damage = 4,

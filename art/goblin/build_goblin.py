@@ -391,28 +391,19 @@ def give(ob, mat):
     return ob
 
 
-OUTLINED = []
+# Pieza R15 a la que pertenece cada objeto (para el juego)
+PART = {}
+# Objetos con contorno anime (casco invertido); los detalles pequeños no lo llevan
+HULLED = set()
 
 
-def outline(ob, thickness=0.011):
-    OUTLINED.append((ob, thickness))
+def assign(part, *objs):
+    PART.setdefault(part, []).extend(objs)
+
+
+def outline(ob, thickness=0.0):
+    HULLED.add(ob.name)
     return ob
-
-
-def build_outlines():
-    for ob, t in OUTLINED:
-        bm = bmesh.new()
-        bm.from_mesh(ob.data)
-        bm.normal_update()
-        for v in bm.verts:
-            v.co += v.normal * t
-        bmesh.ops.reverse_faces(bm, faces=bm.faces)
-        for f in bm.faces:
-            f.material_index = 0
-        o = bm_object(ob.name + "_Outline", bm)
-        give(o, OUTLINE)
-        smooth(o)
-        o.parent = ob.parent
 
 
 # --------------------------------------------------------------------------------------
@@ -514,20 +505,61 @@ def body_color(p):
     return mix(c, SKIN_DARK, 0.55 * extremity)
 
 
-paint(body, body_color)
-give(body, SKIN)
-outline(body)
+# Piezas R15: cada una es su propia forma orgánica y se solapa con la siguiente en la
+# articulación (como un muñeco articulado), así no se ven huecos al doblarse.
+node("waist", (0, -0.01, 1.55), (0.25, 0.215))
+
+
+def segment(name, named_edges):
+    names = []
+    for a, b in named_edges:
+        for n in (a, b):
+            if n not in names:
+                names.append(n)
+    index = {n: i for i, n in enumerate(names)}
+    ob = skin_object(name, [nodes[N[n]] for n in names], [(index[a], index[b]) for a, b in named_edges], subdiv=2)
+    bake(ob)
+    smooth(ob)
+    paint(ob, body_color)
+    give(ob, SKIN)
+    outline(ob)
+    assign(name, ob)
+    return ob
+
+
+segment("LowerTorso", [("pelvis", "waist"), ("pelvis", "hipL"), ("pelvis", "hipR")])
+segment(
+    "UpperTorso",
+    [("waist", "belly"), ("belly", "chest"), ("chest", "upper"), ("upper", "neck"), ("upper", "shL"), ("upper", "shR")],
+)
+for s, prefix in (("L", "Left"), ("R", "Right")):
+    segment(prefix + "UpperArm", [("sh" + s, "el" + s)])
+    segment(prefix + "LowerArm", [("el" + s, "wr" + s)])
+    hand_edges = [("wr" + s, "ha" + s), ("ha" + s, "th" + s)]
+    for k in range(3):
+        hand_edges.append(("ha" + s, f"f{k}a{s}"))
+        if f"f{k}b{s}" in N:
+            hand_edges.append((f"f{k}a{s}", f"f{k}b{s}"))
+    segment(prefix + "Hand", hand_edges)
+    segment(prefix + "UpperLeg", [("hip" + s, "thi" + s), ("thi" + s, "kn" + s)])
+    segment(prefix + "LowerLeg", [("kn" + s, "ca" + s), ("ca" + s, "an" + s)])
+    foot_edges = [("an" + s, "he" + s), ("an" + s, "ba" + s)]
+    for k in range(3):
+        foot_edges += [("ba" + s, f"t{k}a{s}"), (f"t{k}a{s}", f"t{k}b{s}")]
+    segment(prefix + "Foot", foot_edges)
 
 # Garras de los pies y de la mano izquierda
-claws = []
-for side in (1, -1):
+for side, part in ((1, "LeftFoot"), (-1, "RightFoot")):
+    claws = []
     for dx in (-0.07, 0.0, 0.07):
         tip = Vector((side * 0.23 + dx * 1.15, -0.355, 0.04))
         claws.append(cone("Claw", tip, (0, -1, -0.35), 0.065, 0.028))
+    assign(part, give(join(part + "Claws", claws), CLAW))
+claws = []
 for dx in (-0.045, 0.0, 0.045):
     tip = HAND[1] + Vector((dx * 1.1, -0.13, -0.17))
     claws.append(cone("Claw", tip, (0, -0.5, -1), 0.05, 0.02))
-give(join("Claws", claws), CLAW)
+assign("LeftHand", give(join("LeftHandClaws", claws), CLAW))
 
 # --------------------------------------------------------------------------------------
 # Cabeza (orejas, nariz, cejas y mejillas fundidas en una sola pieza)
@@ -609,7 +641,7 @@ for side in (1, -1):
     parts.append(bm_object("Ear", bm))
 
 head = join("Head", parts)
-remesh(head, 0.012, 9000)
+remesh(head, 0.012, 2600)
 EAR_TIP_X = EAR_ROOT_X + EAR_L
 
 
@@ -627,6 +659,7 @@ def head_color(p):
 paint(head, head_color)
 give(head, SKIN)
 outline(head)
+assign("Head", head)
 
 # Interior de las orejas
 inner = []
@@ -642,6 +675,7 @@ for side in (1, -1):
     inner.append(bm_object("InnerEar", bm))
 inner_ears = give(join("InnerEars", inner), INNER_EAR)
 smooth(inner_ears)
+assign("Head", inner_ears)
 
 # --------------------------------------------------------------------------------------
 # Ojos grandes de estilo anime, párpados, boca y colmillos
@@ -657,7 +691,7 @@ for side in (1, -1):
     # Globo ocular: el iris y la pupila los dibuja el material (bordes limpios).
     # El objeto mira hacia donde mira el ojo (su -Y local), un poco hacia dentro.
     look = Vector((side * -0.08, -1, -0.05)).normalized()
-    bm = uv_sphere(48, 24, EYE_R)
+    bm = uv_sphere(32, 16, EYE_R)
     bmesh.ops.transform(bm, matrix=Matrix.Diagonal((1, 1, 1.15, 1)), verts=bm.verts)
     eyeball = bm_object("Eye" + ("L" if side > 0 else "R"), bm)
     eyeball.location = center
@@ -665,6 +699,7 @@ for side in (1, -1):
     eyeball.rotation_quaternion = Vector((0, -1, 0)).rotation_difference(look)
     give(eyeball, EYEBALL)
     smooth(eyeball)
+    assign("Head", eyeball)
     shine = (look + Vector((side * 0.25, 0, 0.35))).normalized() * EYE_R * 1.03
     eye_parts["Shine"].append(ellipsoid("Shine", m_eye @ shine, (0.022, 0.012, 0.022)))
 
@@ -675,7 +710,7 @@ for side in (1, -1):
         @ Euler((math.radians(-4), math.radians(side * 20), 0)).to_matrix().to_4x4()
         @ Matrix.Diagonal((1, 1, 1.15, 1))
     )
-    bm = uv_sphere(40, 20, lid_r)
+    bm = uv_sphere(28, 14, lid_r)
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < cut * lid_r], context="VERTS")
     bmesh.ops.transform(bm, matrix=m_lid, verts=bm.verts)
     lid = bm_object("Lid", bm)
@@ -691,10 +726,12 @@ for side in (1, -1):
 for key, mat in (("Shine", SHINE), ("Lash", LINE)):
     ob = give(join("Eye" + key, eye_parts[key]), mat)
     smooth(ob)
+    assign("Head", ob)
 lids = join("Lids", eye_parts["Lid"])
 smooth(lids)
 paint(lids, lambda p: mix(SKIN_BASE, SKIN_DARK, 0.3))
 give(lids, SKIN)
+assign("Head", lids)
 
 # Boca ancha (algo caída en las comisuras) y dos colmillos pequeños hacia arriba
 mouth_pts = []
@@ -702,7 +739,7 @@ for i in range(9):
     x = -0.25 + 0.5 * i / 8
     z = C.z - 0.29 + 0.035 * (x / 0.25) ** 2 + 0.02 * (x / 0.25)
     mouth_pts.append(face_point(x, z, head) + Vector((0, 0.006, 0)))
-give(tube("Mouth", mouth_pts, 0.016), LINE)
+assign("Head", give(tube("Mouth", mouth_pts, 0.016), LINE))
 fangs = []
 for side in (1, -1):
     fx = side * 0.13
@@ -710,6 +747,7 @@ for side in (1, -1):
     fangs.append(cone("Fang", base, (side * 0.15, -0.35, 1), 0.12, 0.038, seg=12))
 fangs_ob = give(join("Fangs", fangs), IVORY)
 subdivide(fangs_ob, 1)
+assign("Head", fangs_ob)
 
 # Pelo despeinado: mechones curvados que se afinan, de la coronilla hacia atrás,
 # con algunos cayendo sobre la frente
@@ -717,7 +755,8 @@ def lock(name, start, direction, length, radius, bend):
     cu = bpy.data.curves.new(name, "CURVE")
     cu.dimensions = "3D"
     cu.bevel_depth = radius
-    cu.bevel_resolution = 4
+    cu.bevel_resolution = 2
+    cu.resolution_u = 4
     cu.use_fill_caps = True
     sp = cu.splines.new("NURBS")
     count = 6
@@ -770,7 +809,8 @@ for el, az, length, radius in (
     locks.append(lock("Lock", p - d * 0.1, up, length, radius, bend))
 hair = give(join("Hair", locks), HAIR)
 smooth(hair)
-outline(hair, 0.008)
+outline(hair)
+assign("Head", hair)
 
 # --------------------------------------------------------------------------------------
 # Ropa: cinturón, bolsa, taparrabos, tira de tela en el pecho y vendas
@@ -780,11 +820,13 @@ belt = ring("Belt", (0, -0.01, 1.5), (0, -0.12, 1), 0.45, 0.11)
 wrap_on(belt, body, 0.012, 0.035)
 give(belt, LEATHER)
 outline(belt)
+assign("LowerTorso", belt)
 buckle_hit = ray(belt, (0, -2, 1.48), (0, 1, 0)) or Vector((0, -0.25, 1.48))
-give(ellipsoid("Buckle", buckle_hit + Vector((0, 0.005, 0)), (0.07, 0.025, 0.055)), METAL)
+assign("LowerTorso", give(ellipsoid("Buckle", buckle_hit + Vector((0, 0.005, 0)), (0.07, 0.025, 0.055)), METAL))
 pouch = give(ellipsoid("Pouch", (0.29, -0.05, 1.36), (0.08, 0.065, 0.1), rot=(0, 0, math.radians(20))), LEATHER)
 smooth(pouch)
 outline(pouch)
+assign("LowerTorso", pouch)
 
 
 def flap(name, front):
@@ -818,26 +860,35 @@ loin_front = give(flap("LoinFront", True), CLOTH)
 loin_back = give(flap("LoinBack", False), CLOTH_DARK)
 outline(loin_front)
 outline(loin_back)
+assign("LowerTorso", loin_front, loin_back)
 
 tilt = math.radians(40)
 sash = ring("Sash", (0, -0.12, 1.95), (math.tan(tilt), 0, 1), 0.55, 0.17, rows=4)
 wrap_on(sash, body, 0.015, 0.025)
 give(sash, CLOTH_DARK)
 outline(sash)
+assign("UpperTorso", sash)
 
-wraps = []
-for side, s in ((1, "L"), (-1, "R")):
+def bandage(part, rings):
+    ob = join(part + "Wraps", rings)
+    wrap_on(ob, body, 0.008, 0.018, subdiv=0)
+    give(ob, BANDAGE)
+    outline(ob)
+    assign(part, ob)
+
+
+for side, s, prefix in ((1, "L", "Left"), (-1, "R", "Right")):
     el, wr = nodes[N["el" + s]][0], nodes[N["wr" + s]][0]
+    wraps = []
     for t in (0.5, 0.62, 0.74, 0.88):
         axis = (wr - el) + Vector([random.uniform(-0.08, 0.08) for _ in range(3)])
-        wraps.append(ring("Wrap", el.lerp(wr, t), axis, 0.15, 0.055, seg=32, rows=2))
+        wraps.append(ring("Wrap", el.lerp(wr, t), axis, 0.15, 0.055, seg=24, rows=2))
+    bandage(prefix + "LowerArm", wraps)
 kn, an = nodes[N["knR"]][0], nodes[N["anR"]][0]
-for t in (0.45, 0.6):
-    wraps.append(ring("Wrap", kn.lerp(an, t), (an - kn) + Vector((0.05, 0, 0)), 0.16, 0.06, seg=32, rows=2))
-bandages = join("Bandages", wraps)
-wrap_on(bandages, body, 0.008, 0.018)
-give(bandages, BANDAGE)
-outline(bandages, 0.008)
+bandage(
+    "RightLowerLeg",
+    [ring("Wrap", kn.lerp(an, t), (an - kn) + Vector((0.05, 0, 0)), 0.16, 0.06, seg=24, rows=2) for t in (0.45, 0.6)],
+)
 
 # --------------------------------------------------------------------------------------
 # Garrote de madera tosco en la mano derecha
@@ -864,9 +915,14 @@ disp = club.modifiers.new("Rough", "DISPLACE")
 disp.texture = tex
 disp.strength = 0.035
 bake(club)
+if len(club.data.polygons) > 900:
+    dec = club.modifiers.new("Decimate", "DECIMATE")
+    dec.ratio = 900 / len(club.data.polygons)
+    bake(club)
 smooth(club)
 give(club, WOOD)
 outline(club)
+assign("RightHand", club)
 # Tiras de cuero en el mango
 grip_wrap = join(
     "ClubGrip",
@@ -874,11 +930,261 @@ grip_wrap = join(
 )
 wrap_on(grip_wrap, club, 0.006, 0.016, subdiv=1)
 give(grip_wrap, LEATHER)
+assign("RightHand", grip_wrap)
+remove(body)  # el cuerpo entero ya no hace falta (solo servía para ajustar la ropa)
 
-build_outlines()
+# ======================================================================================
+# Versión para Roblox: textura única horneada, 15 piezas R15, contorno, FBX y datos
+# ======================================================================================
+
+R15_PARTS = [
+    "LowerTorso",
+    "UpperTorso",
+    "Head",
+    "LeftUpperArm",
+    "LeftLowerArm",
+    "LeftHand",
+    "RightUpperArm",
+    "RightLowerArm",
+    "RightHand",
+    "LeftUpperLeg",
+    "LeftLowerLeg",
+    "LeftFoot",
+    "RightUpperLeg",
+    "RightLowerLeg",
+    "RightFoot",
+]
+# Centro del HumanoidRootPart del juego: HipHeight 0.81 + la mitad de su alto (1.2)
+ROOT_CENTER = Vector((0, 0.02, 1.41))
+# (articulación, pieza padre, pieza hija, punto de giro)
+JOINTS = [
+    ("Root", "HumanoidRootPart", "LowerTorso", "pelvis"),
+    ("Waist", "LowerTorso", "UpperTorso", "waist"),
+    ("Neck", "UpperTorso", "Head", "neck"),
+]
+for s, prefix in (("L", "Left"), ("R", "Right")):
+    JOINTS += [
+        (prefix + "Shoulder", "UpperTorso", prefix + "UpperArm", "sh" + s),
+        (prefix + "Elbow", prefix + "UpperArm", prefix + "LowerArm", "el" + s),
+        (prefix + "Wrist", prefix + "LowerArm", prefix + "Hand", "wr" + s),
+        (prefix + "Hip", "LowerTorso", prefix + "UpperLeg", "hip" + s),
+        (prefix + "Knee", prefix + "UpperLeg", prefix + "LowerLeg", "kn" + s),
+        (prefix + "Ankle", prefix + "LowerLeg", prefix + "Foot", "an" + s),
+    ]
+
+ATLAS_SIZE = 1024  # el máximo que usa Roblox
+HULL_T = 0.018  # grosor del contorno anime (studs)
+OUTLINE_RGB = lin(30, 36, 20)
+REPO = os.path.abspath(os.path.join(OUT, "..", ".."))
+EXPORT = os.path.join(OUT, "export")
+os.makedirs(EXPORT, exist_ok=True)
+
+missing = [p for p in R15_PARTS if p not in PART]
+if missing:
+    raise RuntimeError(f"Faltan piezas: {missing}")
+game_objects = [o for part in R15_PARTS for o in PART[part]]
+stray = [o.name for o in bpy.data.objects if o.type == "MESH" and o not in game_objects]
+if stray:
+    print("[goblin] AVISO: objetos sin pieza asignada:", stray)
+
+
+def select_only(objs):
+    bpy.context.view_layer.update()
+    for o in scene.objects:
+        if o is not None:
+            o.select_set(False)
+    for o in objs:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = objs[0]
+
+
+# 0) Presupuesto de triángulos por objeto (el contorno duplica las piezas grandes).
+#    Objetivo: unos 15 000 triángulos en total para que 8 goblins a la vez vayan fluidos.
+TRI_BUDGET = {
+    "Head": 3000,
+    "Hair": 1300,
+    "LowerTorso": 700,
+    "UpperTorso": 900,
+    "LeftHand": 500,
+    "RightHand": 450,
+    "LeftFoot": 600,
+    "RightFoot": 600,
+    "Club": 700,
+    "Belt": 300,
+    "Sash": 300,
+    "LoinFront": 260,
+    "LoinBack": 260,
+    "InnerEars": 300,
+    "EyeL": 600,
+    "EyeR": 600,
+}
+for o in game_objects:
+    budget = TRI_BUDGET.get(o.name, 400)
+    tris = sum(len(p.vertices) - 2 for p in o.data.polygons)
+    if tris > budget:
+        dec = o.modifiers.new("Decimate", "DECIMATE")
+        dec.ratio = budget / tris
+        dec.use_collapse_triangulate = False
+        bake(o)
+        smooth(o)
+    print(f"[goblin]   {o.name}: {tris} -> {sum(len(p.vertices) - 2 for p in o.data.polygons)}")
+
+# 1) Coordenadas de textura: todo en una sola imagen; ojos y cara con más resolución
+UV_BOOST = {"EyeL": 3.0, "EyeR": 3.0, "Head": 1.5, "Lids": 1.5}
+scene.tool_settings.use_uv_select_sync = True
+select_only(game_objects)
+bpy.ops.object.mode_set(mode="EDIT")
+bpy.ops.mesh.select_all(action="SELECT")
+bpy.ops.uv.smart_project(angle_limit=math.radians(66), island_margin=0.003)
+bpy.ops.object.mode_set(mode="OBJECT")
+for o in game_objects:
+    k = UV_BOOST.get(o.name, 1.0)
+    if k != 1.0:
+        uv = o.data.uv_layers.active.data
+        cx = sum(loop.uv.x for loop in uv) / len(uv)
+        cy = sum(loop.uv.y for loop in uv) / len(uv)
+        for loop in uv:
+            loop.uv = (cx + (loop.uv.x - cx) * k, cy + (loop.uv.y - cy) * k)
+bpy.ops.object.mode_set(mode="EDIT")
+bpy.ops.mesh.select_all(action="SELECT")
+bpy.ops.uv.pack_islands(margin=0.004)
+bpy.ops.object.mode_set(mode="OBJECT")
+for o in game_objects:
+    for loop in o.data.uv_layers.active.data:
+        loop.uv = loop.uv * 0.97  # la esquina de arriba a la derecha queda para el contorno
+
+# 2) Hornear todos los colores (piel con sus tonos, ropa, iris...) en la textura
+atlas = bpy.data.images.new("GoblinTier1_Texture", ATLAS_SIZE, ATLAS_SIZE, alpha=False)
+for m in {m for o in game_objects for m in o.data.materials if m}:
+    image_node = m.node_tree.nodes.new("ShaderNodeTexImage")
+    image_node.image = atlas
+    m.node_tree.nodes.active = image_node
+scene.render.engine = "CYCLES"
+scene.cycles.samples = 8
+select_only(game_objects)
+bpy.ops.object.bake(type="DIFFUSE", pass_filter={"COLOR"}, use_clear=True, margin=8)
+
+import numpy as np  # noqa: E402
+
+pixels = np.empty(ATLAS_SIZE * ATLAS_SIZE * 4, dtype=np.float32)
+atlas.pixels.foreach_get(pixels)
+pixels = pixels.reshape(ATLAS_SIZE, ATLAS_SIZE, 4)
+corner = int(ATLAS_SIZE * 0.975)
+pixels[corner:, corner:, 0:3] = OUTLINE_RGB
+atlas.pixels.foreach_set(pixels.ravel())
+atlas.update()
+atlas.filepath_raw = os.path.join(EXPORT, "GoblinTier1_Texture.png")
+atlas.file_format = "PNG"
+atlas.save()
+atlas.pack()
+
+ATLAS = bpy.data.materials.new("GoblinTier1")
+if ATLAS.node_tree is None:
+    ATLAS.use_nodes = True
+ATLAS.use_backface_culling = True
+atlas_bsdf = next(n for n in ATLAS.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
+atlas_node = ATLAS.node_tree.nodes.new("ShaderNodeTexImage")
+atlas_node.image = atlas
+ATLAS.node_tree.links.new(atlas_node.outputs["Color"], atlas_bsdf.inputs["Base Color"])
+atlas_bsdf.inputs["Roughness"].default_value = 0.7
+
+
+# 3) Contorno anime: copia un poco más gruesa con las caras dadas la vuelta. Solo se ve
+#    su parte de atrás, que asoma por el borde de la silueta (funciona igual en Roblox).
+def make_hull(ob):
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bm.transform(ob.matrix_world)
+    bm.normal_update()
+    for v in bm.verts:
+        v.co += v.normal * HULL_T
+    bmesh.ops.reverse_faces(bm, faces=bm.faces)
+    uv = bm.loops.layers.uv.active
+    for face in bm.faces:
+        for loop in face.loops:
+            loop[uv].uv = (0.99, 0.99)
+    return bm_object(ob.name + "Outline", bm)
+
+
+# 4) Unir cada pieza R15 con lo que lleva encima
+final = {}
+for part in R15_PARTS:
+    objs = PART[part] + [make_hull(o) for o in PART[part] if o.name in HULLED]
+    for o in objs:
+        o.data.materials.clear()
+        o.data.materials.append(ATLAS)
+        o.data.polygons.foreach_set("material_index", [0] * len(o.data.polygons))
+    target = objs[0]
+    select_only(objs)
+    with bpy.context.temp_override(
+        active_object=target, object=target, selected_objects=objs, selected_editable_objects=objs
+    ):
+        bpy.ops.object.join()
+    target.name = part
+    target.data.name = part
+    final[part] = target
+
+# 5) Medidas de cada pieza (para colocarlas en el juego) y número de triángulos
+info = {}
+total_tris = 0
+for part, ob in final.items():
+    cos = [v.co for v in ob.data.vertices]
+    lo = Vector((min(c.x for c in cos), min(c.y for c in cos), min(c.z for c in cos)))
+    hi = Vector((max(c.x for c in cos), max(c.y for c in cos), max(c.z for c in cos)))
+    tris = sum(len(p.vertices) - 2 for p in ob.data.polygons)
+    total_tris += tris
+    info[part] = ((lo + hi) / 2, hi - lo, tris)
+    print(f"[goblin] {part}: {tris} triángulos")
+    if tris > 20000:
+        raise RuntimeError(f"{part} supera el límite de triángulos de Roblox")
+print(f"[goblin] total: {total_tris} triángulos")
+
+# 6) Exportar a FBX (15 mallas con los nombres de R15 y la textura incluida)
+select_only(list(final.values()))
+bpy.ops.export_scene.fbx(
+    filepath=os.path.join(EXPORT, "GoblinTier1.fbx"),
+    use_selection=True,
+    object_types={"MESH"},
+    mesh_smooth_type="FACE",
+    use_mesh_modifiers=True,
+    path_mode="COPY",
+    embed_textures=True,
+    axis_forward="-Z",
+    axis_up="Y",
+    apply_scale_options="FBX_SCALE_ALL",
+    add_leaf_bones=False,
+)
+
+
+# 7) Datos del rig para el juego (coordenadas de Blender; el juego las convierte)
+def v3(v):
+    return f"Vector3.new({v.x:.4f}, {v.y:.4f}, {v.z:.4f})"
+
+
+lua = [
+    "-- GENERADO por art/goblin/build_goblin.py: no editar a mano (se sobrescribe).",
+    "-- Medidas del Goblin de Blender (1 unidad = 1 stud; mira hacia -Y, arriba es +Z).",
+    "-- server/MeshRig.luau las usa para montar el modelo importado en Roblox.",
+    "return {",
+    '\tTemplate = "GoblinTier1",',
+    f"\tRoot = {v3(ROOT_CENTER)},",
+    "\tParts = {",
+]
+for part in R15_PARTS:
+    center, size, tris = info[part]
+    lua.append(f"\t\t{part} = {{ Center = {v3(center)}, Size = {v3(size)}, Triangles = {tris} }},")
+lua += ["\t},", "\tJoints = {"]
+for name, part0, part1, node_name in JOINTS:
+    pos = nodes[N[node_name]][0]
+    lua.append(f'\t\t{{ Name = "{name}", Part0 = "{part0}", Part1 = "{part1}", Position = {v3(pos)} }},')
+lua += ["\t},", "}", ""]
+rig_dir = os.path.join(REPO, "src", "server", "MonsterRigs")
+os.makedirs(rig_dir, exist_ok=True)
+with open(os.path.join(rig_dir, "GoblinTier1.luau"), "w", encoding="utf-8", newline="\n") as fh:
+    fh.write("\n".join(lua))
 
 # --------------------------------------------------------------------------------------
-# Escena de vista previa
+# Vistas previas de la versión del juego (textura horneada + contorno, igual que en Roblox)
 # --------------------------------------------------------------------------------------
 
 world = bpy.data.worlds.new("World")
@@ -912,12 +1218,9 @@ for name, loc, energy, size in (
 
 scene.render.resolution_x = 900
 scene.render.resolution_y = 1100
-scene.render.film_transparent = False
-engine = None
 for candidate in ("BLENDER_EEVEE", "BLENDER_EEVEE_NEXT"):
     try:
         scene.render.engine = candidate
-        engine = candidate
         break
     except TypeError:
         pass
@@ -926,14 +1229,7 @@ try:
 except AttributeError:
     pass
 
-# Guardar el proyecto editable antes de renderizar
 bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT, "goblin_v1.blend"))
-
-total = sum(len(o.data.polygons) for o in bpy.data.objects if o.type == "MESH" and o.name != "Ground")
-outline_faces = sum(
-    len(o.data.polygons) for o in bpy.data.objects if o.type == "MESH" and o.name.endswith("_Outline")
-)
-print(f"[goblin] caras totales: {total} (contornos: {outline_faces})")
 
 
 def render(name, loc, target, scale):
@@ -946,13 +1242,7 @@ def render(name, loc, target, scale):
     aim(cam, target)
     scene.camera = cam
     scene.render.filepath = os.path.join(PREVIEW, name + ".png")
-    try:
-        bpy.ops.render.render(write_still=True)
-    except RuntimeError as err:
-        print("[goblin] EEVEE falló, uso Cycles:", err)
-        scene.render.engine = "CYCLES"
-        scene.cycles.samples = 48
-        bpy.ops.render.render(write_still=True)
+    bpy.ops.render.render(write_still=True)
 
 
 render("front", (0, -12, 1.9), (0, 0, 1.9), 4.3)

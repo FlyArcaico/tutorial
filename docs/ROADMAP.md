@@ -106,6 +106,28 @@ Probado por el dueño en Studio: andar, correr, morir y reaparecer funcionan bie
 - Las habilidades del Slime que venían de murciélagos y lobos no se pueden conseguir
   mientras esos monstruos estén retirados. El Goblin no da habilidad (solo atributos).
 
+## Goblin en Blender (hecho, pendiente de importar y probar en Studio)
+
+Diseño aprobado por el dueño (vistas previas en `art/goblin/previews`).
+
+- [x] Blender 5.3 instalado. `art/goblin/build_goblin.py` crea el modelo entero con código:
+      `blender -b --factory-startup --python art/goblin/build_goblin.py -- art/goblin`
+      Genera `goblin_v1.blend` (editable), `export/GoblinTier1.fbx`, la textura y
+      `src/server/MonsterRigs/GoblinTier1.luau` (medidas para el juego).
+- [x] 15 piezas R15 (cada una con su ropa, vendas o garrote), textura única de 1024 px con
+      todos los colores horneados (también el iris), contorno anime incluido en la malla.
+      Unos 32 000 triángulos en total (la cabeza, la pieza mayor, 12 000; límite de Roblox 20 000).
+- [x] `server/MeshRig.luau`: monta cualquier monstruo de Blender. Averigua solo la escala y el
+      giro con que se importó, comprueba que las piezas encajan y crea las articulaciones R15.
+      Si el modelo no está o no encaja, se usa el Goblin de piezas (copia de seguridad).
+- [x] Animaciones `GoblinMesh`: las mismas del Goblin sin la postura encorvada (ya está en el
+      modelo).
+- [ ] El dueño importa el FBX en Studio y lo guarda como `assets/models/GoblinTier1.rbxm`.
+- [ ] Probar en Studio: tamaño, textura, contorno, animaciones, IA y muerte.
+- Nota: brazos y piernas son piezas articuladas (se ve una pequeña unión en hombros, codos y
+  rodillas). Para un cuerpo de una sola pieza que se deforme haría falta un rig con huesos
+  (Bones); se puede estudiar más adelante.
+
 ## Decisiones pendientes (preguntar al dueño)
 
 - Invocados: el juego tiene **Fuego / Agua / Planta**; el documento de diseño habla de **Hielo**.

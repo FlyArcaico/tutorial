@@ -1158,25 +1158,92 @@ end
 
 -- Goblin: encorvado, rodillas dobladas, la cabeza levantada para mirar al frente y el
 -- garrote colgando. Mira a los lados, se rasca la cabeza y cambia el peso de pierna.
-local function goblinIdlePose(breath, shift, look, scratch)
+-- `posture` = cuánta postura de goblin pone la animación: 1 para el Goblin de piezas (que
+-- está recto en reposo) y 0 para el modelo de Blender (que ya viene encorvado, con las
+-- rodillas dobladas y el garrote hacia abajo). Los movimientos son los mismos en los dos.
+local function goblinAnimations(posture, walk, run)
+	local k = posture
+	-- Postura base de cada articulación
+	local LEAN, WAIST, NECK, WRIST, KNEE, HIP, ANKLE, UP =
+		12 * k, 11 * k, -16 * k, -50 * k, 18 * k, 6 * k, -8 * k, -0.06 * k
+
+	local function idlePose(breath, shift, look, scratch)
+		return {
+			Root = { lean = LEAN, up = UP + 0.02 * breath, roll = 3 * shift, side = 0.04 * shift },
+			Waist = { lean = WAIST - 2 * breath, yaw = look * 0.25, roll = -2 * shift },
+			Neck = { pitch = NECK - 2 * breath, yaw = look, roll = look * 0.15 },
+			-- Brazo del garrote: el garrote cuelga mirando hacia abajo y delante
+			RS = { 10 * k, 10 },
+			RE = { 25 * k + 3 * breath },
+			RW = { WRIST },
+			-- Brazo libre: de vez en cuando sube a rascarse la cabeza
+			LS = { 6 * k + 150 * scratch, 12 + 30 * scratch },
+			LE = { 28 * k + 90 * scratch },
+			LW = { 0 },
+			RH = { HIP + 3 * math.max(0, -shift), 6 },
+			RK = { KNEE + 8 * math.max(0, -shift) },
+			RA = { ANKLE },
+			LH = { HIP + 3 * math.max(0, shift), 6 },
+			LK = { KNEE + 8 * math.max(0, shift) },
+			LA = { ANKLE },
+		}
+	end
+
+	-- Pose del garrotazo a partir de cuánto se aparta de la postura base
+	local function attackPose(lean, up, forward, waistLean, waistYaw, neck, rs, re, rw, ls, le)
+		return {
+			Root = { lean = LEAN + lean, up = UP + up, forward = forward },
+			Waist = { lean = WAIST + waistLean, yaw = waistYaw },
+			Neck = { pitch = NECK + neck },
+			RS = rs,
+			RE = re,
+			RW = { WRIST + rw },
+			LS = ls,
+			LE = le,
+		}
+	end
+	local rest = attackPose(0, 0, 0, 0, 0, 0, { 10 * k, 10 }, { 25 * k }, 0, { 6 * k, 12 }, { 28 * k })
+
 	return {
-		Root = { lean = 12, up = -0.06 + 0.02 * breath, roll = 3 * shift, side = 0.04 * shift },
-		Waist = { lean = 11 - 2 * breath, yaw = look * 0.25, roll = -2 * shift },
-		Neck = { pitch = -16 - 2 * breath, yaw = look, roll = look * 0.15 },
-		-- Brazo del garrote: el garrote cuelga mirando hacia abajo y delante
-		RS = { 10, 10 },
-		RE = { 25 + 3 * breath },
-		RW = { -50 },
-		-- Brazo libre: de vez en cuando sube a rascarse la cabeza
-		LS = { 6 + 150 * scratch, 12 + 30 * scratch },
-		LE = { 28 + 90 * scratch },
-		LW = { 0 },
-		RH = { 6 + 3 * math.max(0, -shift), 6 },
-		RK = { 18 + 8 * math.max(0, -shift) },
-		RA = { -8 },
-		LH = { 6 + 3 * math.max(0, shift), 6 },
-		LK = { 18 + 8 * math.max(0, shift) },
-		LA = { -8 },
+		Idle = compile({
+			Length = 6,
+			Loop = true,
+			Frames = {
+				{ Time = 0, Pose = idlePose(0, 0, 0, 0) },
+				{ Time = 1.2, Pose = idlePose(1, 0.7, 14, 0) }, -- mira a un lado
+				{ Time = 2.1, Pose = idlePose(0, 0.4, -6, 0) },
+				{ Time = 2.6, Pose = idlePose(0.5, 0, -10, 1) }, -- se rasca la cabeza
+				{ Time = 3.1, Pose = idlePose(0.5, 0, -8, 1) },
+				{ Time = 3.6, Pose = idlePose(0, -0.3, -4, 0) },
+				{ Time = 4.8, Pose = idlePose(1, -0.8, -16, 0) }, -- mira al otro lado
+				{ Time = 6, Pose = idlePose(0, 0, 0, 0) },
+			},
+		}),
+		Walk = locomotion(walk),
+		Run = locomotion(run),
+		-- Garrotazo torpe: levanta el garrote con las dos manos (cargar), lo baja de golpe,
+		-- se pasa de frenada tropezando un poco y vuelve
+		Attack = compile({
+			Length = 0.95,
+			Frames = {
+				{ Time = 0, Pose = rest },
+				{
+					Time = 0.32,
+					Pose = attackPose(-10, 0.1, -0.1, -19, -14, -8, { 160, 12 }, { 55 }, 60, { 150, -10 }, { 60 }),
+				},
+				{
+					Time = 0.46,
+					Ease = "Out",
+					Pose = attackPose(8, -0.12, 0.15, 13, 14, 10, { 45, -8 }, { 10 }, 40, { 40, -15 }, { 15 }),
+				},
+				{
+					-- Se pasa de frenada: tropieza un poco hacia delante
+					Time = 0.6,
+					Pose = attackPose(12, -0.16, 0.22, 15, 10, 20, { 35, -6 }, { 15 }, 30, { -10, 30 }, { 30 }),
+				},
+				{ Time = 0.95, Pose = rest },
+			},
+		}),
 	}
 end
 
@@ -1226,100 +1293,29 @@ local GOBLIN_RUN = with(HUMAN_RUN, {
 })
 
 AnimationData.Monster = {
-	Goblin = {
-		Idle = compile({
-			Length = 6,
-			Loop = true,
-			Frames = {
-				{ Time = 0, Pose = goblinIdlePose(0, 0, 0, 0) },
-				{ Time = 1.2, Pose = goblinIdlePose(1, 0.7, 14, 0) }, -- mira a un lado
-				{ Time = 2.1, Pose = goblinIdlePose(0, 0.4, -6, 0) },
-				{ Time = 2.6, Pose = goblinIdlePose(0.5, 0, -10, 1) }, -- se rasca la cabeza
-				{ Time = 3.1, Pose = goblinIdlePose(0.5, 0, -8, 1) },
-				{ Time = 3.6, Pose = goblinIdlePose(0, -0.3, -4, 0) },
-				{ Time = 4.8, Pose = goblinIdlePose(1, -0.8, -16, 0) }, -- mira al otro lado
-				{ Time = 6, Pose = goblinIdlePose(0, 0, 0, 0) },
-			},
+	-- Goblin hecho con piezas de Roblox (copia de seguridad)
+	Goblin = goblinAnimations(1, GOBLIN_WALK, GOBLIN_RUN),
+	-- Goblin de Blender: la postura encorvada ya está en el modelo
+	GoblinMesh = goblinAnimations(
+		0,
+		with(GOBLIN_WALK, {
+			FrontKnee = 4,
+			BackKnee = 12,
+			StanceKnee = 6,
+			SwingKnee = 34,
+			Lean = 3,
+			ChestLean = 2,
+			HeadPitch = -3,
 		}),
-		Walk = locomotion(GOBLIN_WALK),
-		Run = locomotion(GOBLIN_RUN),
-		-- Garrotazo torpe: levanta el garrote con las dos manos (cargar), lo baja de golpe,
-		-- se pasa de frenada tropezando un poco y vuelve
-		Attack = compile({
-			Length = 0.95,
-			Frames = {
-				{
-					Time = 0,
-					Pose = {
-						Root = { lean = 12, up = -0.06, forward = 0 },
-						Waist = { lean = 11, yaw = 0 },
-						Neck = { pitch = -16 },
-						RS = { 10, 10 },
-						RE = { 25 },
-						RW = { -50 },
-						LS = { 6, 12 },
-						LE = { 28 },
-					},
-				},
-				{
-					Time = 0.32,
-					Pose = {
-						Root = { lean = 2, up = 0.04, forward = -0.1 },
-						Waist = { lean = -8, yaw = -14 },
-						Neck = { pitch = -24 },
-						RS = { 160, 12 },
-						RE = { 55 },
-						RW = { 10 },
-						LS = { 150, -10 },
-						LE = { 60 },
-					},
-				},
-				{
-					Time = 0.46,
-					Ease = "Out",
-					Pose = {
-						Root = { lean = 20, up = -0.18, forward = 0.15 },
-						Waist = { lean = 24, yaw = 14 },
-						Neck = { pitch = -6 },
-						RS = { 45, -8 },
-						RE = { 10 },
-						RW = { -10 },
-						LS = { 40, -15 },
-						LE = { 15 },
-					},
-				},
-				{
-					-- Se pasa de frenada: tropieza un poco hacia delante
-					Time = 0.6,
-					Pose = {
-						Root = { lean = 24, up = -0.22, forward = 0.22 },
-						Waist = { lean = 26, yaw = 10 },
-						Neck = { pitch = 4 },
-						RS = { 35, -6 },
-						RE = { 15 },
-						RW = { -20 },
-						LS = { -10, 30 },
-						LE = { 30 },
-					},
-				},
-				{
-					Time = 0.95,
-					Pose = {
-						Root = { lean = 12, up = -0.06, forward = 0 },
-						Waist = { lean = 11, yaw = 0 },
-						Neck = { pitch = -16 },
-						RS = { 10, 10 },
-						RE = { 25 },
-						RW = { -50 },
-						LS = { 6, 12 },
-						LE = { 28 },
-					},
-				},
-			},
-		}),
-	},
+		with(GOBLIN_RUN, {
+			StanceKnee = 14,
+			SwingKnee = 64,
+			Lean = 10,
+			ChestLean = 4,
+			HeadPitch = -8,
+		})
+	),
 }
-
 -- Combos de espada según la rareza: las mejores espadas tienen más golpes
 AnimationData.SwordCombos = {
 	Common = { "SlashA", "SlashB" },
