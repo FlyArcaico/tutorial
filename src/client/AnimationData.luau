@@ -1,99 +1,148 @@
--- Animaciones de los personajes R6, hechas con fotogramas clave (como en el Animation Editor).
+-- Animaciones de los personajes (R15), hechas con fotogramas clave como en el Animation Editor.
 --
--- Cada pose usa grados y nombres fáciles:
---   Brazos/piernas: { pitch, out, twist }
---     pitch > 0 = hacia delante, out > 0 = abrir hacia fuera, twist = girar sobre sí mismo
---   Torso: { lean = inclinar adelante, roll = ladear a la derecha, yaw = girar a la derecha,
---            up = subir/bajar (studs), forward = adelantar (studs) }
---   Head:  { pitch = mirar abajo, roll, yaw = girar a la derecha }
--- Una articulación que no aparece en una animación no se toca (así las de "solo brazos"
--- se pueden poner encima de andar o correr).
+-- Articulaciones (nombres cortos):
+--   Root (cadera/cuerpo entero), Waist (cintura), Neck (cuello)
+--   RS/LS hombros, RE/LE codos, RW/LW muñecas
+--   RH/LH caderas, RK/LK rodillas, RA/LA tobillos
+-- Valores en grados:
+--   Hombros y caderas: { pitch = adelante, out = abrir hacia fuera, twist = girar }
+--   Codos: { doblar }   Rodillas: { doblar }   Tobillos: { punta arriba }
+--   Muñecas: { arriba/abajo, ladear }
+--   Root / Waist: { lean = inclinar adelante, yaw = girar a la derecha, roll = ladear a la
+--                   derecha, up = subir/bajar en studs, forward = adelantar en studs }
+--   Neck: { pitch = mirar abajo, yaw = mirar a la derecha, roll }
+-- Una articulación que no aparece en una animación "de encima" (golpe, guardia...) no se
+-- toca: así se puede golpear mientras se anda o se corre.
 local AnimationData = {}
 
 local rad = math.rad
 
+AnimationData.Joints =
+	{ "Root", "Waist", "Neck", "RS", "RE", "RW", "LS", "LE", "LW", "RH", "RK", "RA", "LH", "LK", "LA" }
+
 --------------------------------------------------------------------------------
--- Conversión de poses "fáciles" a los Motor6D de R6
+-- Conversión de poses "fáciles" a los Motor6D de R15
+-- (en R15 todos los Motor6D tienen los ejes alineados con el cuerpo)
 --------------------------------------------------------------------------------
 
--- En R6, el hombro/cadera derechos y los izquierdos están girados al revés
-local function limb(values, isLeft)
-	local pitch, out, twist = values[1] or 0, values[2] or 0, values[3] or 0
-	if isLeft then
-		return CFrame.Angles(rad(-out), rad(-twist), rad(-pitch))
+local function limb(isLeft)
+	return function(v)
+		local pitch, out, twist = v[1] or 0, v[2] or 0, v[3] or 0
+		if isLeft then
+			return CFrame.Angles(rad(pitch), rad(-twist), rad(-out))
+		end
+		return CFrame.Angles(rad(pitch), rad(twist), rad(out))
 	end
-	return CFrame.Angles(rad(-out), rad(twist), rad(pitch))
 end
 
--- RootJoint y Neck: X = inclinar adelante, Y = ladear (a la izquierda), Z = girar (a la izquierda)
-local function torso(values)
-	return CFrame.new(0, -(values.forward or 0), values.up or 0)
-		* CFrame.Angles(rad(values.lean or 0), rad(-(values.roll or 0)), rad(-(values.yaw or 0)))
+local function hinge(sign)
+	return function(v)
+		return CFrame.Angles(rad((v[1] or 0) * sign), 0, 0)
+	end
 end
 
-local function head(values)
-	return CFrame.Angles(rad(values.pitch or 0), rad(-(values.roll or 0)), rad(-(values.yaw or 0)))
+local function wrist(isLeft)
+	return function(v)
+		return CFrame.Angles(rad(v[1] or 0), 0, rad((v[2] or 0) * (if isLeft then -1 else 1)))
+	end
+end
+
+local function bodyJoint(v)
+	return CFrame.new(v.side or 0, v.up or 0, -(v.forward or 0))
+		* CFrame.Angles(rad(-(v.lean or 0)), rad(-(v.yaw or 0)), rad(-(v.roll or 0)))
+end
+
+local function neckJoint(v)
+	return CFrame.Angles(rad(-(v.pitch or 0)), rad(-(v.yaw or 0)), rad(-(v.roll or 0)))
 end
 
 local CONVERT = {
-	RightShoulder = function(v)
-		return limb(v, false)
-	end,
-	LeftShoulder = function(v)
-		return limb(v, true)
-	end,
-	RightHip = function(v)
-		return limb(v, false)
-	end,
-	LeftHip = function(v)
-		return limb(v, true)
-	end,
-	Torso = torso,
-	Head = head,
+	Root = bodyJoint,
+	Waist = bodyJoint,
+	Neck = neckJoint,
+	RS = limb(false),
+	LS = limb(true),
+	RH = limb(false),
+	LH = limb(true),
+	RE = hinge(1), -- el antebrazo se dobla hacia delante
+	LE = hinge(1),
+	RK = hinge(-1), -- la pierna se dobla hacia atrás
+	LK = hinge(-1),
+	RA = hinge(1),
+	LA = hinge(1),
+	RW = wrist(false),
+	LW = wrist(true),
 }
 
--- Nombres cortos en las poses -> articulación
-local SHORT =
-	{ RS = "RightShoulder", LS = "LeftShoulder", RH = "RightHip", LH = "LeftHip", Torso = "Torso", Head = "Head" }
+-- Lado derecho <-> izquierdo (para hacer el segundo paso de un ciclo, el puñetazo izquierdo...)
+local SWAP = {
+	RS = "LS",
+	LS = "RS",
+	RE = "LE",
+	LE = "RE",
+	RW = "LW",
+	LW = "RW",
+	RH = "LH",
+	LH = "RH",
+	RK = "LK",
+	LK = "RK",
+	RA = "LA",
+	LA = "RA",
+}
 
--- Convierte una animación escrita a mano en fotogramas con CFrames listos para mezclar
+local function mirror(pose)
+	local result = {}
+	for key, values in pose do
+		if SWAP[key] then
+			result[SWAP[key]] = values
+		else
+			local copy = table.clone(values)
+			copy.yaw = -(values.yaw or 0)
+			copy.roll = -(values.roll or 0)
+			copy.side = -(values.side or 0)
+			result[key] = copy
+		end
+	end
+	return result
+end
+AnimationData.Mirror = mirror
+
+-- Convierte una animación escrita a mano en fotogramas con CFrames listos para mezclar.
+-- Si un fotograma no menciona una articulación, usa la del fotograma anterior (o el siguiente).
 local function compile(definition)
 	local joints = {}
 	for _, frame in definition.Frames do
-		for short in frame.Pose do
-			joints[SHORT[short]] = true
+		for joint in frame.Pose do
+			assert(CONVERT[joint], "Articulación desconocida en una animación: " .. tostring(joint))
+			joints[joint] = true
 		end
 	end
 
 	local frames = {}
-	local previous = {}
-	for _, frame in definition.Frames do
+	for index, frame in definition.Frames do
 		local compiled = { Time = frame.Time, Ease = frame.Ease or "Sine", CFrames = {} }
-		for short, values in frame.Pose do
-			previous[SHORT[short]] = CONVERT[SHORT[short]](values)
-		end
 		for joint in joints do
-			compiled.CFrames[joint] = previous[joint] or CFrame.identity
-		end
-		table.insert(frames, compiled)
-	end
-	-- Los primeros fotogramas que no tenían una articulación usan la del primero que sí
-	for joint in joints do
-		local first = nil
-		for _, frame in definition.Frames do
-			for short, values in frame.Pose do
-				if SHORT[short] == joint and not first then
-					first = CONVERT[joint](values)
+			local values = frame.Pose[joint]
+			if not values then
+				-- Buscar el fotograma anterior que la tenga; si no, el siguiente
+				for back = index - 1, 1, -1 do
+					values = definition.Frames[back].Pose[joint]
+					if values then
+						break
+					end
+				end
+				if not values then
+					for ahead = index + 1, #definition.Frames do
+						values = definition.Frames[ahead].Pose[joint]
+						if values then
+							break
+						end
+					end
 				end
 			end
+			compiled.CFrames[joint] = CONVERT[joint](values or {})
 		end
-		for _, frame in frames do
-			if frame.CFrames[joint] == CFrame.identity and first then
-				frame.CFrames[joint] = first
-			else
-				break
-			end
-		end
+		table.insert(frames, compiled)
 	end
 
 	return {
@@ -103,6 +152,7 @@ local function compile(definition)
 		Joints = joints,
 	}
 end
+AnimationData.Compile = compile
 
 --------------------------------------------------------------------------------
 -- Leer una animación en un momento dado
@@ -113,13 +163,13 @@ local function ease(alpha, style)
 		return alpha
 	elseif style == "Out" then -- empieza rápido (golpes)
 		return 1 - (1 - alpha) ^ 3
-	elseif style == "In" then
+	elseif style == "In" then -- empieza lento (caer)
 		return alpha ^ 2
 	end
 	return alpha * alpha * (3 - 2 * alpha) -- "Sine": suave en los dos extremos
 end
 
--- Devuelve { [articulación] = CFrame } para el tiempo t
+-- Devuelve una tabla nueva { [articulación] = CFrame } para el tiempo t
 function AnimationData.Sample(animation, t)
 	local frames = animation.Frames
 	if animation.Loop then
@@ -139,39 +189,15 @@ function AnimationData.Sample(animation, t)
 			return pose
 		end
 	end
-	return frames[#frames].CFrames
+	return table.clone(frames[#frames].CFrames)
 end
 
 --------------------------------------------------------------------------------
--- Animaciones
+-- Generadores: reposo, andar y correr a partir de unos pocos parámetros
+-- (así cada raza tiene su forma de moverse sin repetir todo)
 --------------------------------------------------------------------------------
 
-local function mirrorLimb(values)
-	return { values[1], values[2], -(values[3] or 0) }
-end
-
--- Crea el fotograma "espejo" (lado derecho <-> izquierdo) para ciclos de andar/correr
-local function mirror(pose)
-	local result = {}
-	for key, values in pose do
-		if key == "RS" then
-			result.LS = mirrorLimb(values)
-		elseif key == "LS" then
-			result.RS = mirrorLimb(values)
-		elseif key == "RH" then
-			result.LH = mirrorLimb(values)
-		elseif key == "LH" then
-			result.RH = mirrorLimb(values)
-		else
-			local copy = table.clone(values)
-			copy.yaw = -(values.yaw or 0)
-			copy.roll = -(values.roll or 0)
-			result[key] = copy
-		end
-	end
-	return result
-end
-
+-- Ciclo: apoyo derecho -> paso -> apoyo izquierdo -> paso
 local function cycle(length, contact, passing)
 	return compile({
 		Length = length,
@@ -186,208 +212,628 @@ local function cycle(length, contact, passing)
 	})
 end
 
+-- p: parámetros del movimiento (ver HUMAN_WALK para la lista)
+local function locomotion(p)
+	-- Pie derecho delante (talón apoyado) y pie izquierdo detrás (empujando)
+	local contact = {
+		Root = { lean = p.Lean, yaw = -p.HipTwist, up = -p.Bob, roll = 0 },
+		Waist = { lean = p.ChestLean, yaw = p.ChestTwist },
+		Neck = { pitch = p.HeadPitch, yaw = p.HipTwist - p.ChestTwist },
+		RH = { p.Stride, p.LegOut },
+		RK = { p.FrontKnee },
+		RA = { p.HeelUp },
+		LH = { -p.StrideBack, p.LegOut },
+		LK = { p.BackKnee },
+		LA = { -p.ToeOff },
+		-- Brazos al revés que las piernas, separados del cuerpo y con el codo doblado
+		RS = { -p.ArmBack, p.ArmOut },
+		RE = { p.ElbowBack },
+		RW = { 0 },
+		LS = { p.ArmFront, p.ArmOut },
+		LE = { p.ElbowFront },
+		LW = { 0 },
+	}
+	-- Paso: la pierna izquierda pasa por delante con la rodilla alta; el cuerpo sube
+	local passing = {
+		Root = { lean = p.Lean, yaw = 0, up = p.Rise, roll = p.Roll },
+		Waist = { lean = p.ChestLean, yaw = 0 },
+		Neck = { pitch = p.HeadPitch, yaw = 0 },
+		RH = { -4, p.LegOut },
+		RK = { p.StanceKnee },
+		RA = { 2 },
+		LH = { p.SwingHip, p.LegOut },
+		LK = { p.SwingKnee },
+		LA = { p.SwingFoot },
+		RS = { -p.ArmBack * 0.15, p.ArmOut },
+		RE = { p.ElbowMid },
+		RW = { 0 },
+		LS = { p.ArmFront * 0.15, p.ArmOut },
+		LE = { p.ElbowMid },
+		LW = { 0 },
+	}
+	return cycle(p.Length, contact, passing)
+end
+
+-- Reposo: respira y cambia un poco el peso de pierna
+local function idle(p)
+	local function pose(breath)
+		return {
+			Root = { up = p.Crouch + 0.03 * breath, roll = p.Shift * (1 - breath * 2) },
+			Waist = { lean = p.ChestLean - 2 * breath, yaw = p.ChestYaw },
+			Neck = { pitch = -2 * breath + p.HeadPitch, yaw = -p.ChestYaw },
+			RS = { 3 + p.ArmForward, p.ArmOut + 2 * breath },
+			RE = { p.Elbow },
+			RW = { p.Wrist },
+			LS = { 3 + p.ArmForward, p.ArmOut + 2 * breath },
+			LE = { p.Elbow },
+			LW = { p.Wrist },
+			RH = { 0, p.LegOut },
+			RK = { p.Knee },
+			RA = { 0 },
+			LH = { 0, p.LegOut },
+			LK = { p.Knee },
+			LA = { 0 },
+		}
+	end
+	return compile({
+		Length = p.Length,
+		Loop = true,
+		Frames = {
+			{ Time = 0, Pose = pose(0) },
+			{ Time = p.Length / 2, Pose = pose(1) },
+			{ Time = p.Length, Pose = pose(0) },
+		},
+	})
+end
+
+local function with(base, changes)
+	local result = table.clone(base)
+	for key, value in changes do
+		result[key] = value
+	end
+	return result
+end
+
+-- Human: equilibrado y natural
+local HUMAN_WALK = {
+	Length = 1.1,
+	Stride = 26,
+	StrideBack = 20,
+	LegOut = 2,
+	FrontKnee = 4,
+	BackKnee = 16,
+	HeelUp = 8,
+	ToeOff = 14,
+	StanceKnee = 6,
+	SwingHip = 14,
+	SwingKnee = 48,
+	SwingFoot = 5,
+	ArmBack = 22,
+	ArmFront = 26,
+	ArmOut = 9,
+	ElbowBack = 12,
+	ElbowFront = 28,
+	ElbowMid = 18,
+	Lean = 3,
+	ChestLean = 1,
+	Bob = 0.06,
+	Rise = 0.06,
+	Roll = 1.5,
+	HipTwist = 6,
+	ChestTwist = 9,
+	HeadPitch = -1,
+}
+local HUMAN_RUN = with(HUMAN_WALK, {
+	Length = 0.66,
+	Stride = 52,
+	StrideBack = 38,
+	FrontKnee = 18,
+	BackKnee = 55,
+	HeelUp = 10,
+	ToeOff = 25,
+	StanceKnee = 25,
+	SwingHip = 35,
+	SwingKnee = 100,
+	SwingFoot = 15,
+	ArmBack = 50,
+	ArmFront = 62,
+	ArmOut = 12,
+	ElbowBack = 70,
+	ElbowFront = 95,
+	ElbowMid = 85,
+	Lean = 15,
+	ChestLean = 4,
+	Bob = 0.12,
+	Rise = 0.16,
+	Roll = 2,
+	HipTwist = 9,
+	ChestTwist = 14,
+	HeadPitch = -12,
+})
+local HUMAN_IDLE = {
+	Length = 3.4,
+	Crouch = 0,
+	Shift = 1.2,
+	ChestLean = 0,
+	ChestYaw = 0,
+	HeadPitch = 0,
+	ArmForward = 0,
+	ArmOut = 7,
+	Elbow = 12,
+	Wrist = 0,
+	LegOut = 3,
+	Knee = 3,
+}
+
+-- Elf: ligero, ágil y elegante (pasos más altos y "saltarines")
+local ELF_WALK = with(HUMAN_WALK, {
+	Length = 0.95,
+	Stride = 24,
+	SwingKnee = 58,
+	ArmFront = 18,
+	ArmBack = 16,
+	ArmOut = 12,
+	ElbowFront = 32,
+	ElbowBack = 20,
+	ElbowMid = 26,
+	Lean = 1,
+	Bob = 0.08,
+	Rise = 0.09,
+	ChestTwist = 6,
+	HeadPitch = -3,
+})
+local ELF_RUN = with(HUMAN_RUN, {
+	Length = 0.6,
+	Stride = 55,
+	SwingKnee = 110,
+	ArmFront = 50,
+	ArmBack = 42,
+	ArmOut = 14,
+	ElbowFront = 85,
+	ElbowBack = 65,
+	Lean = 12,
+	Rise = 0.2,
+})
+local ELF_IDLE = with(HUMAN_IDLE, { Shift = 3, ArmOut = 6, Elbow = 14, HeadPitch = -3, Length = 3.8 })
+
+-- Ogre: pesado y poderoso (piernas abiertas, se balancea, brazos separados)
+local OGRE_WALK = with(HUMAN_WALK, {
+	Length = 1.3,
+	Stride = 22,
+	StrideBack = 18,
+	LegOut = 8,
+	StanceKnee = 12,
+	SwingKnee = 40,
+	ArmOut = 22,
+	ArmFront = 20,
+	ArmBack = 18,
+	ElbowFront = 32,
+	ElbowBack = 26,
+	ElbowMid = 28,
+	Lean = 7,
+	ChestLean = 4,
+	Bob = 0.12,
+	Rise = 0.1,
+	Roll = 4,
+	HipTwist = 8,
+	ChestTwist = 12,
+	HeadPitch = 4,
+})
+local OGRE_RUN = with(HUMAN_RUN, {
+	Length = 0.78,
+	Stride = 44,
+	LegOut = 8,
+	StanceKnee = 28,
+	SwingKnee = 85,
+	ArmOut = 24,
+	ArmFront = 55,
+	ArmBack = 48,
+	ElbowFront = 80,
+	ElbowBack = 70,
+	Lean = 18,
+	Bob = 0.16,
+	Rise = 0.14,
+	Roll = 4,
+	HeadPitch = -6,
+})
+local OGRE_IDLE = with(HUMAN_IDLE, {
+	Length = 2.8,
+	Crouch = -0.08,
+	Shift = 2,
+	ChestLean = 4,
+	HeadPitch = 3,
+	ArmOut = 18,
+	Elbow = 22,
+	LegOut = 9,
+	Knee = 10,
+})
+
+-- Invocados: elegantes, con las manos un poco levantadas, listas para la magia
+local SUMMONED_WALK = with(HUMAN_WALK, {
+	Stride = 24,
+	ArmFront = 14,
+	ArmBack = 12,
+	ArmOut = 14,
+	ElbowFront = 34,
+	ElbowBack = 26,
+	ElbowMid = 30,
+	Lean = 1,
+	Bob = 0.05,
+	Roll = 2,
+	ChestTwist = 5,
+})
+local SUMMONED_RUN = with(HUMAN_RUN, { ArmOut = 14, ArmFront = 55, ArmBack = 45 })
+local SUMMONED_IDLE = with(HUMAN_IDLE, { ArmForward = 8, ArmOut = 12, Elbow = 35, Wrist = -15, Shift = 1.5 })
+
+-- Fuego: agresivo e inclinado hacia delante. Agua: fluido y ondulante.
+local FIRE_WALK = with(SUMMONED_WALK, { Lean = 5, ArmFront = 22, ArmBack = 18, ChestTwist = 10, HeadPitch = 2 })
+local FIRE_RUN = with(SUMMONED_RUN, { Lean = 18 })
+local FIRE_IDLE = with(SUMMONED_IDLE, { ChestLean = 3, HeadPitch = 3, Elbow = 45 })
+local WATER_WALK = with(SUMMONED_WALK, { Roll = 3.5, Bob = 0.04, Rise = 0.05, Length = 1.2, ChestTwist = 7 })
+local WATER_RUN = with(SUMMONED_RUN, { Roll = 3 })
+local WATER_IDLE = with(SUMMONED_IDLE, { Shift = 2.5, Length = 4 })
+
+--------------------------------------------------------------------------------
+-- Animaciones comunes
+--------------------------------------------------------------------------------
+
 local Anim = {}
 AnimationData.Animations = Anim
-
--- Reposo: respira despacio
-Anim.Idle = compile({
-	Length = 3.2,
-	Loop = true,
-	Frames = {
-		{
-			Time = 0,
-			Pose = {
-				RS = { 2, 4 },
-				LS = { 2, 4 },
-				RH = { 0, 2 },
-				LH = { 0, 2 },
-				Torso = { up = 0 },
-				Head = { pitch = 0 },
-			},
-		},
-		{
-			Time = 1.6,
-			Pose = {
-				RS = { 4, 7, 4 },
-				LS = { 4, 7, 4 },
-				RH = { 0, 2 },
-				LH = { 0, 2 },
-				Torso = { up = 0.05, lean = -1 },
-				Head = { pitch = -3 },
-			},
-		},
-		{
-			Time = 3.2,
-			Pose = {
-				RS = { 2, 4 },
-				LS = { 2, 4 },
-				RH = { 0, 2 },
-				LH = { 0, 2 },
-				Torso = { up = 0 },
-				Head = { pitch = 0 },
-			},
-		},
-	},
-})
-
--- Andar: pie derecho delante -> paso -> pie izquierdo delante -> paso
--- (el torso sube en el paso, baja al apoyar, y gira un poco con los hombros)
-Anim.Walk = cycle(1.05, {
-	RS = { -24, 5 },
-	LS = { 24, 5 },
-	RH = { 28, 1 },
-	LH = { -24, 1 },
-	Torso = { lean = 3, yaw = -5, up = -0.07, roll = 0 },
-	Head = { yaw = 4, pitch = -2 },
-}, {
-	RS = { 0, 5 },
-	LS = { 0, 5 },
-	RH = { -8, 1 },
-	LH = { 12, 1 },
-	Torso = { lean = 3, yaw = 0, up = 0.07, roll = 2 },
-	Head = { yaw = 0, pitch = -2 },
-})
-
--- Correr: zancadas largas, cuerpo inclinado, brazos fuertes y una fase "en el aire"
-Anim.Run = cycle(0.68, {
-	RS = { -62, -6, 10 },
-	LS = { 68, -6, -10 },
-	RH = { 58, 2 },
-	LH = { -50, 2 },
-	Torso = { lean = 16, yaw = -9, up = -0.14, roll = 0 },
-	Head = { pitch = -12, yaw = 7 },
-}, {
-	RS = { -8, -6 },
-	LS = { 12, -6 },
-	RH = { 12, 2 },
-	LH = { 28, 2 },
-	Torso = { lean = 16, yaw = 0, up = 0.2, roll = 3 },
-	Head = { pitch = -12, yaw = 0 },
-})
 
 -- Saltar (subiendo) y caer
 Anim.Jump = compile({
 	Length = 0.3,
 	Frames = {
-		{ Time = 0, Pose = { RS = { 10, 10 }, LS = { 10, 10 }, RH = { 0 }, LH = { 0 }, Torso = { lean = 0 } } },
-		{ Time = 0.18, Pose = { RS = { 35, 40 }, LS = { 35, 40 }, RH = { 40 }, LH = { -15 }, Torso = { lean = -5 } } },
-		{ Time = 0.3, Pose = { RS = { 30, 45 }, LS = { 30, 45 }, RH = { 32 }, LH = { -10 }, Torso = { lean = -4 } } },
+		{
+			Time = 0,
+			Pose = {
+				Root = { lean = 0 },
+				Waist = { lean = 0 },
+				RS = { 10, 10 },
+				RE = { 20 },
+				LS = { 10, 10 },
+				LE = { 20 },
+				RH = { 10, 3 },
+				RK = { 10 },
+				LH = { 0, 3 },
+				LK = { 10 },
+			},
+		},
+		{
+			Time = 0.18,
+			Pose = {
+				Root = { lean = -4 },
+				Waist = { lean = -3 },
+				RS = { 35, 28 },
+				RE = { 40 },
+				LS = { 35, 28 },
+				LE = { 40 },
+				RH = { 45, 3 },
+				RK = { 70 },
+				RA = { 10 },
+				LH = { -8, 3 },
+				LK = { 25 },
+			},
+		},
+		{
+			Time = 0.3,
+			Pose = {
+				Root = { lean = -3 },
+				Waist = { lean = -2 },
+				RS = { 30, 32 },
+				RE = { 35 },
+				LS = { 30, 32 },
+				LE = { 35 },
+				RH = { 38, 3 },
+				RK = { 60 },
+				LH = { -6, 3 },
+				LK = { 22 },
+			},
+		},
 	},
 })
 
 Anim.Fall = compile({
-	Length = 0.8,
+	Length = 0.9,
 	Loop = true,
 	Frames = {
 		{
 			Time = 0,
-			Pose = { RS = { 25, 70 }, LS = { 25, 70 }, RH = { 12, 6 }, LH = { -18, 6 }, Torso = { lean = 5 } },
+			Pose = {
+				Waist = { lean = 4 },
+				RS = { 20, 60 },
+				RE = { 25 },
+				LS = { 20, 60 },
+				LE = { 25 },
+				RH = { 20, 5 },
+				RK = { 35 },
+				LH = { -10, 5 },
+				LK = { 45 },
+			},
 		},
 		{
-			Time = 0.4,
-			Pose = { RS = { 20, 80 }, LS = { 20, 80 }, RH = { 20, 6 }, LH = { -8, 6 }, Torso = { lean = 3 } },
+			Time = 0.45,
+			Pose = {
+				Waist = { lean = 2 },
+				RS = { 15, 70 },
+				RE = { 30 },
+				LS = { 15, 70 },
+				LE = { 30 },
+				RH = { 25, 5 },
+				RK = { 30 },
+				LH = { -5, 5 },
+				LK = { 40 },
+			},
 		},
 		{
-			Time = 0.8,
-			Pose = { RS = { 25, 70 }, LS = { 25, 70 }, RH = { 12, 6 }, LH = { -18, 6 }, Torso = { lean = 5 } },
+			Time = 0.9,
+			Pose = {
+				Waist = { lean = 4 },
+				RS = { 20, 60 },
+				RE = { 25 },
+				LS = { 20, 60 },
+				LE = { 25 },
+				RH = { 20, 5 },
+				RK = { 35 },
+				LH = { -10, 5 },
+				LK = { 45 },
+			},
 		},
 	},
 })
 
--- Espada al hombro (solo brazo derecho, encima de andar/correr)
+-- Aterrizar: flexiona las rodillas para amortiguar y vuelve a ponerse recto
+local STAND = {
+	Root = { up = 0, lean = 0 },
+	Waist = { lean = 0 },
+	RS = { 5, 8 },
+	RE = { 15 },
+	LS = { 5, 8 },
+	LE = { 15 },
+	RH = { 0, 3 },
+	RK = { 4 },
+	RA = { 0 },
+	LH = { 0, 3 },
+	LK = { 4 },
+	LA = { 0 },
+}
+Anim.Land = compile({
+	Length = 0.34,
+	Frames = {
+		{ Time = 0, Pose = STAND },
+		{
+			Time = 0.08,
+			Ease = "Out",
+			Pose = {
+				Root = { up = -0.5, lean = 12 },
+				Waist = { lean = 8 },
+				RS = { 25, 25 },
+				RE = { 40 },
+				LS = { 25, 25 },
+				LE = { 40 },
+				RH = { 35, 6 },
+				RK = { 70 },
+				RA = { -20 },
+				LH = { 35, 6 },
+				LK = { 70 },
+				LA = { -20 },
+			},
+		},
+		{ Time = 0.34, Pose = STAND },
+	},
+})
+
+-- Recibir daño: el cuerpo se va un poco hacia atrás y vuelve
+Anim.Hurt = compile({
+	Length = 0.36,
+	Frames = {
+		{ Time = 0, Pose = { Waist = { lean = 0, yaw = 0 }, Neck = { pitch = 0 }, Root = { forward = 0 } } },
+		{
+			Time = 0.07,
+			Ease = "Out",
+			Pose = {
+				Waist = { lean = -14, yaw = 8 },
+				Neck = { pitch = -18, yaw = -6 },
+				Root = { forward = -0.18 },
+				RS = { -12, 30 },
+				RE = { 35 },
+				LS = { -12, 30 },
+				LE = { 35 },
+			},
+		},
+		{
+			Time = 0.36,
+			Pose = {
+				Waist = { lean = 0, yaw = 0 },
+				Neck = { pitch = 0, yaw = 0 },
+				Root = { forward = 0 },
+				RS = { 5, 8 },
+				RE = { 15 },
+				LS = { 5, 8 },
+				LE = { 15 },
+			},
+		},
+	},
+})
+
+-- Morir: las rodillas ceden y cae de espaldas al suelo, donde se queda.
+-- ("up" está pensado para un personaje de tamaño normal; el Animator lo escala.)
+local LYING = {
+	Root = { lean = -88, up = -2.35, forward = -0.6 },
+	Waist = { lean = -4 },
+	Neck = { pitch = -10, yaw = 15 },
+	RS = { 10, 70 },
+	RE = { 20 },
+	LS = { -5, 75 },
+	LE = { 35 },
+	RH = { 8, 10 },
+	RK = { 15 },
+	RA = { 30 },
+	LH = { -5, 12 },
+	LK = { 25 },
+	LA = { 30 },
+}
+Anim.Death = compile({
+	Length = 1.3,
+	Frames = {
+		{ Time = 0, Pose = with(STAND, { Neck = { pitch = 0 } }) },
+		{
+			Time = 0.3,
+			Pose = {
+				Root = { up = -0.9, lean = 15 },
+				Waist = { lean = 18 },
+				Neck = { pitch = 25 },
+				RS = { 10, 15 },
+				RE = { 30 },
+				LS = { 10, 15 },
+				LE = { 30 },
+				RH = { 40, 4 },
+				RK = { 80 },
+				RA = { -10 },
+				LH = { 40, 4 },
+				LK = { 80 },
+				LA = { -10 },
+			},
+		},
+		{ Time = 0.75, Ease = "In", Pose = LYING },
+		{ Time = 0.9, Pose = with(LYING, { Root = { lean = -84, up = -2.2, forward = -0.6 } }) },
+		{ Time = 1.05, Pose = LYING },
+		{ Time = 1.3, Pose = LYING },
+	},
+})
+
+--------------------------------------------------------------------------------
+-- Espada al hombro, guardias y golpes
+--------------------------------------------------------------------------------
+
+-- Espada al hombro: el antebrazo hacia arriba y la hoja descansando sobre el hombro
+local CARRY = { RS = { 60, 15 }, RE = { 100 }, RW = { -10 } }
 Anim.SwordCarry = compile({
 	Length = 1,
 	Loop = true,
-	Frames = {
-		{ Time = 0, Pose = { RS = { 118, -22, 25 } } },
-		{ Time = 1, Pose = { RS = { 118, -22, 25 } } },
-	},
+	Frames = { { Time = 0, Pose = CARRY }, { Time = 1, Pose = CARRY } },
 })
 
--- Guardia con los puños: brazos cruzados delante de la cara, un poco agachado
-Anim.Guard = compile({
-	Length = 1.6,
-	Loop = true,
-	Frames = {
-		{
-			Time = 0,
-			Pose = {
-				RS = { 112, -40, 15 },
-				LS = { 112, -40, 15 },
-				Torso = { lean = 9, up = -0.25 },
-				Head = { pitch = -8 },
-			},
+-- Guardia de combate: pies separados (izquierdo delante), rodillas dobladas, cuerpo girado
+-- de lado hacia el enemigo y la cabeza mirando al frente. Se mueve un poco (respira).
+local function stance(p)
+	local function pose(breath)
+		return {
+			Root = { yaw = -p.Turn, up = p.Crouch + 0.04 * breath, lean = p.Lean },
+			Waist = { yaw = p.Turn * 0.45, lean = p.ChestLean },
+			Neck = { yaw = p.Turn * 0.55, pitch = p.HeadPitch },
+			RH = { -14, p.LegOut },
+			RK = { p.Knee + 4 * breath },
+			RA = { 8 },
+			LH = { 26, p.LegOut * 0.8 },
+			LK = { p.Knee - 2 + 4 * breath },
+			LA = { -6 },
+			RS = p.RS,
+			RE = p.RE,
+			RW = p.RW,
+			LS = p.LS,
+			LE = p.LE,
+			LW = p.LW,
+		}
+	end
+	return compile({
+		Length = 1.6,
+		Loop = true,
+		Frames = {
+			{ Time = 0, Pose = pose(0) },
+			{ Time = 0.8, Pose = pose(1) },
+			{ Time = 1.6, Pose = pose(0) },
 		},
-		{
-			Time = 0.8,
-			Pose = {
-				RS = { 108, -38, 15 },
-				LS = { 108, -38, 15 },
-				Torso = { lean = 8, up = -0.22 },
-				Head = { pitch = -7 },
-			},
-		},
-		{
-			Time = 1.6,
-			Pose = {
-				RS = { 112, -40, 15 },
-				LS = { 112, -40, 15 },
-				Torso = { lean = 9, up = -0.25 },
-				Head = { pitch = -8 },
-			},
-		},
-	},
-})
+	})
+end
 
--- Guardia con espada: la espada en medio, de pie delante del cuerpo
-Anim.GuardSword = compile({
-	Length = 1,
-	Loop = true,
-	Frames = {
-		{
-			Time = 0,
-			Pose = {
-				RS = { 82, -48, 0 },
-				LS = { 72, -55, 0 },
-				Torso = { lean = 6, up = -0.2, yaw = 10 },
-				Head = { pitch = -5, yaw = -8 },
-			},
-		},
-		{
-			Time = 1,
-			Pose = {
-				RS = { 82, -48, 0 },
-				LS = { 72, -55, 0 },
-				Torso = { lean = 6, up = -0.2, yaw = 10 },
-				Head = { pitch = -5, yaw = -8 },
-			},
-		},
-	},
-})
+-- Sin arma: guardia de boxeo (puño izquierdo delante, derecho protegiendo la barbilla)
+local FIST_STANCE = {
+	Turn = 25,
+	Crouch = -0.32,
+	Lean = 6,
+	ChestLean = 4,
+	HeadPitch = 8,
+	LegOut = 8,
+	Knee = 28,
+	RS = { 38, 12 },
+	RE = { 112 },
+	RW = { 0 },
+	LS = { 58, 8 },
+	LE = { 98 },
+	LW = { 0 },
+}
+-- Con espada: la empuñadura delante de la cintura y la hoja en diagonal, con la punta
+-- hacia el enemigo; la mano izquierda ayuda a sujetarla. Los brazos no tocan el cuerpo.
+local SWORD_STANCE = {
+	Turn = 30,
+	Crouch = -0.36,
+	Lean = 7,
+	ChestLean = 3,
+	HeadPitch = 4,
+	LegOut = 10,
+	Knee = 30,
+	RS = { 28, 14 },
+	RE = { 38 },
+	RW = { -18 },
+	LS = { 36, -6 },
+	LE = { 58 },
+	LW = { 0 },
+}
+Anim.Guard = stance(FIST_STANCE)
+Anim.GuardSword = stance(SWORD_STANCE)
+-- Ogre: postura más ancha y baja, y la espada más alta (es más pesada)
+Anim.GuardOgre = stance(with(FIST_STANCE, { LegOut = 13, Crouch = -0.42, RS = { 42, 18 }, LS = { 60, 14 } }))
+Anim.GuardSwordOgre = stance(with(SWORD_STANCE, {
+	LegOut = 13,
+	Crouch = -0.45,
+	RS = { 40, 16 },
+	RE = { 50 },
+	RW = { -10 },
+	LS = { 46, -4 },
+	LE = { 62 },
+}))
 
--- Puñetazo: cargar hacia atrás -> golpe rápido -> volver. Con la otra mano en guardia.
+-- Puñetazo: cargar -> golpe rápido con el brazo estirado -> volver. La otra mano en guardia.
 local function punch(isLeft)
-	local hit = {
-		RS = { 92, -6, 0 },
-		LS = { 55, -22, 0 },
-		Torso = { yaw = 24, lean = 9 },
-		Head = { yaw = -12, pitch = -4 },
+	local start = {
+		Root = { yaw = 0, lean = 0, forward = 0 },
+		Waist = { yaw = 0, lean = 0 },
+		Neck = { yaw = 0 },
+		RS = { 10, 8 },
+		RE = { 20 },
+		LS = { 10, 8 },
+		LE = { 20 },
 	}
 	local windup = {
-		RS = { -22, 8, 0 },
-		LS = { 62, -22, 0 },
-		Torso = { yaw = -18, lean = 3 },
-		Head = { yaw = 8 },
+		Root = { yaw = -6, lean = 2, forward = 0 },
+		Waist = { yaw = -18, lean = 2 },
+		Neck = { yaw = 12 },
+		RS = { 25, 10 },
+		RE = { 125 },
+		LS = { 55, 8 },
+		LE = { 100 },
+	}
+	local hit = {
+		Root = { yaw = 8, lean = 4, forward = 0.15 },
+		Waist = { yaw = 24, lean = 5 },
+		Neck = { yaw = -20 },
+		RS = { 88, 2 },
+		RE = { 6 },
+		LS = { 50, 8 },
+		LE = { 105 },
 	}
 	local rest = {
-		RS = { 20, 6, 0 },
-		LS = { 30, -10, 0 },
-		Torso = { yaw = 0, lean = 3 },
-		Head = { yaw = 0 },
+		Root = { yaw = 0, lean = 0, forward = 0 },
+		Waist = { yaw = 0, lean = 0 },
+		Neck = { yaw = 0 },
+		RS = { 30, 9 },
+		RE = { 60 },
+		LS = { 35, 8 },
+		LE = { 70 },
 	}
-	local start = { RS = { 5, 5 }, LS = { 5, 5 }, Torso = { yaw = 0 }, Head = { yaw = 0 } }
 	if isLeft then
-		hit, windup, rest, start = mirror(hit), mirror(windup), mirror(rest), mirror(start)
+		start, windup, hit, rest = mirror(start), mirror(windup), mirror(hit), mirror(rest)
 	end
 	return compile({
 		Length = 0.36,
@@ -402,73 +848,265 @@ end
 Anim.PunchRight = punch(false)
 Anim.PunchLeft = punch(true)
 
--- Tajos de espada (cortos). Empiezan y acaban con la espada al hombro.
-local CARRY = { 118, -22, 25 }
+-- Tajos de espada cortos. Empiezan y acaban con la espada al hombro.
+local CARRY_SLASH =
+	{ RS = { 60, 15 }, RE = { 100 }, RW = { -10 }, LS = { 10, 10 }, LE = { 20 }, Waist = { yaw = 0, lean = 2 } }
 Anim.SlashA = compile({ -- diagonal, de arriba a la derecha hacia abajo a la izquierda
 	Length = 0.42,
 	Frames = {
-		{ Time = 0, Pose = { RS = CARRY, LS = { 10, 8 }, Torso = { yaw = 0, lean = 2 } } },
-		{ Time = 0.13, Pose = { RS = { 160, 35, 0 }, LS = { 25, 12 }, Torso = { yaw = -26, lean = -2 } } },
-		{ Time = 0.24, Pose = { RS = { 48, -48, 0 }, LS = { 15, 12 }, Torso = { yaw = 30, lean = 12 } }, Ease = "Out" },
-		{ Time = 0.42, Pose = { RS = { 100, -22, 15 }, LS = { 8, 6 }, Torso = { yaw = 6, lean = 4 } } },
+		{ Time = 0, Pose = CARRY_SLASH },
+		{
+			Time = 0.13,
+			Pose = {
+				RS = { 150, 40 },
+				RE = { 40 },
+				RW = { -20 },
+				LS = { 20, 15 },
+				LE = { 30 },
+				Waist = { yaw = -26, lean = -3 },
+			},
+		},
+		{
+			Time = 0.24,
+			Ease = "Out",
+			Pose = {
+				RS = { 55, -25 },
+				RE = { 10 },
+				RW = { 10 },
+				LS = { 15, 12 },
+				LE = { 25 },
+				Waist = { yaw = 32, lean = 12 },
+			},
+		},
+		{ Time = 0.42, Pose = with(CARRY_SLASH, { Waist = { yaw = 5, lean = 3 } }) },
 	},
 })
 Anim.SlashB = compile({ -- horizontal, de izquierda a derecha
 	Length = 0.42,
 	Frames = {
-		{ Time = 0, Pose = { RS = CARRY, LS = { 10, 8 }, Torso = { yaw = 0, lean = 2 } } },
-		{ Time = 0.12, Pose = { RS = { 92, -68, -20 }, LS = { 30, 15 }, Torso = { yaw = 34, lean = 4 } } },
+		{ Time = 0, Pose = CARRY_SLASH },
+		{
+			Time = 0.12,
+			Pose = {
+				RS = { 90, -55 },
+				RE = { 30 },
+				RW = { 0 },
+				LS = { 30, 15 },
+				LE = { 35 },
+				Waist = { yaw = 34, lean = 4 },
+			},
+		},
 		{
 			Time = 0.24,
-			Pose = { RS = { 98, 55, -20 }, LS = { 20, 15 }, Torso = { yaw = -34, lean = 9 } },
 			Ease = "Out",
+			Pose = {
+				RS = { 95, 60 },
+				RE = { 8 },
+				RW = { 0 },
+				LS = { 20, 15 },
+				LE = { 30 },
+				Waist = { yaw = -34, lean = 8 },
+			},
 		},
-		{ Time = 0.42, Pose = { RS = { 105, -15, 15 }, LS = { 8, 6 }, Torso = { yaw = -4, lean = 4 } } },
+		{ Time = 0.42, Pose = with(CARRY_SLASH, { Waist = { yaw = -4, lean = 3 } }) },
 	},
 })
 Anim.SlashC = compile({ -- de arriba abajo con las dos manos
 	Length = 0.5,
 	Frames = {
-		{ Time = 0, Pose = { RS = CARRY, LS = { 10, 8 }, Torso = { lean = 2, up = 0 } } },
-		{ Time = 0.17, Pose = { RS = { 172, -5 }, LS = { 165, -12 }, Torso = { lean = -8, up = 0.05 } } },
-		{ Time = 0.3, Pose = { RS = { 42, -12 }, LS = { 38, -18 }, Torso = { lean = 20, up = -0.22 } }, Ease = "Out" },
-		{ Time = 0.5, Pose = { RS = { 100, -20, 15 }, LS = { 10, 8 }, Torso = { lean = 4, up = 0 } } },
+		{ Time = 0, Pose = with(CARRY_SLASH, { Root = { up = 0, lean = 0 } }) },
+		{
+			Time = 0.17,
+			Pose = {
+				RS = { 170, 0 },
+				RE = { 30 },
+				RW = { -10 },
+				LS = { 165, -10 },
+				LE = { 35 },
+				Waist = { lean = -8, yaw = 0 },
+				Root = { up = 0.05, lean = 0 },
+			},
+		},
+		{
+			Time = 0.3,
+			Ease = "Out",
+			Pose = {
+				RS = { 40, -8 },
+				RE = { 10 },
+				RW = { 10 },
+				LS = { 35, -15 },
+				LE = { 15 },
+				Waist = { lean = 20, yaw = 0 },
+				Root = { up = -0.3, lean = 6 },
+			},
+		},
+		{ Time = 0.5, Pose = with(CARRY_SLASH, { Root = { up = 0, lean = 0 } }) },
 	},
 })
 Anim.SlashSpin = compile({ -- giro completo con la espada extendida (espadas míticas)
 	Length = 0.55,
 	Frames = {
-		{ Time = 0, Pose = { RS = { 90, 70 }, LS = { 20, 40 }, Torso = { yaw = 0, lean = 6 } } },
-		{ Time = 0.12, Pose = { RS = { 90, 72 }, LS = { 20, 40 }, Torso = { yaw = 90, lean = 8 } }, Ease = "Linear" },
-		{ Time = 0.24, Pose = { RS = { 90, 72 }, LS = { 20, 40 }, Torso = { yaw = 180, lean = 8 } }, Ease = "Linear" },
-		{ Time = 0.36, Pose = { RS = { 90, 72 }, LS = { 20, 40 }, Torso = { yaw = 270, lean = 8 } }, Ease = "Linear" },
-		{ Time = 0.46, Pose = { RS = { 90, 70 }, LS = { 20, 40 }, Torso = { yaw = 360, lean = 6 } }, Ease = "Linear" },
-		{ Time = 0.55, Pose = { RS = { 105, -15, 15 }, LS = { 10, 8 }, Torso = { yaw = 360, lean = 3 } } },
+		{
+			Time = 0,
+			Pose = { RS = { 90, 75 }, RE = { 5 }, LS = { 25, 40 }, LE = { 30 }, Root = { yaw = 0, lean = 6 } },
+		},
+		{ Time = 0.12, Ease = "Linear", Pose = { Root = { yaw = 90, lean = 8 } } },
+		{ Time = 0.24, Ease = "Linear", Pose = { Root = { yaw = 180, lean = 8 } } },
+		{ Time = 0.36, Ease = "Linear", Pose = { Root = { yaw = 270, lean = 8 } } },
+		{ Time = 0.46, Ease = "Linear", Pose = { Root = { yaw = 360, lean = 6 } } },
+		{
+			Time = 0.55,
+			Pose = { RS = { 60, 15 }, RE = { 100 }, LS = { 10, 10 }, LE = { 20 }, Root = { yaw = 360, lean = 0 } },
+		},
 	},
 })
 
--- Ogre: levanta los dos brazos y machaca
+-- Ogre: levanta los dos brazos y machaca (la animación que ya funcionaba bien, pasada a R15)
 Anim.Smash = compile({
 	Length = 0.62,
 	Frames = {
-		{ Time = 0, Pose = { RS = { 5, 5 }, LS = { 5, 5 }, Torso = { lean = 2, up = 0 } } },
-		{ Time = 0.26, Pose = { RS = { 172, 12 }, LS = { 172, 12 }, Torso = { lean = -10, up = 0.06 } } },
-		{ Time = 0.37, Pose = { RS = { 55, -15 }, LS = { 55, -15 }, Torso = { lean = 22, up = -0.35 } }, Ease = "Out" },
-		{ Time = 0.62, Pose = { RS = { 8, 6 }, LS = { 8, 6 }, Torso = { lean = 3, up = 0 } } },
+		{
+			Time = 0,
+			Pose = {
+				RS = { 10, 8 },
+				RE = { 20 },
+				LS = { 10, 8 },
+				LE = { 20 },
+				Waist = { lean = 2 },
+				Root = { up = 0, lean = 0 },
+			},
+		},
+		{
+			Time = 0.26,
+			Pose = {
+				RS = { 172, 12 },
+				RE = { 25 },
+				LS = { 172, 12 },
+				LE = { 25 },
+				Waist = { lean = -10 },
+				Root = { up = 0.06, lean = 0 },
+			},
+		},
+		{
+			Time = 0.37,
+			Ease = "Out",
+			Pose = {
+				RS = { 55, -10 },
+				RE = { 10 },
+				LS = { 55, -10 },
+				LE = { 10 },
+				Waist = { lean = 22 },
+				Root = { up = -0.35, lean = 6 },
+			},
+		},
+		{
+			Time = 0.62,
+			Pose = {
+				RS = { 10, 8 },
+				RE = { 20 },
+				LS = { 10, 8 },
+				LE = { 20 },
+				Waist = { lean = 3 },
+				Root = { up = 0, lean = 0 },
+			},
+		},
 	},
 })
 
--- Invocado: mano derecha hacia delante como lanzando magia
+-- Lanzar magia: la mano derecha empuja hacia delante con la palma abierta
 Anim.Cast = compile({
 	Length = 0.46,
 	Frames = {
-		{ Time = 0, Pose = { RS = { 5, 5 }, LS = { 5, 5 }, Torso = { yaw = 0, lean = 2 } } },
-		{ Time = 0.1, Pose = { RS = { 40, 20, -20 }, LS = { 25, 15 }, Torso = { yaw = -10, lean = 0 } } },
-		{ Time = 0.2, Pose = { RS = { 90, 6, -30 }, LS = { 30, 18 }, Torso = { yaw = 16, lean = 6 } }, Ease = "Out" },
-		{ Time = 0.32, Pose = { RS = { 88, 6, -30 }, LS = { 30, 18 }, Torso = { yaw = 14, lean = 5 } } },
-		{ Time = 0.46, Pose = { RS = { 8, 5 }, LS = { 8, 5 }, Torso = { yaw = 0, lean = 2 } } },
+		{
+			Time = 0,
+			Pose = {
+				RS = { 10, 8 },
+				RE = { 20 },
+				RW = { 0 },
+				LS = { 10, 8 },
+				LE = { 20 },
+				Waist = { yaw = 0, lean = 2 },
+			},
+		},
+		{
+			Time = 0.1,
+			Pose = {
+				RS = { 40, 20, -20 },
+				RE = { 60 },
+				RW = { 10 },
+				LS = { 25, 15 },
+				LE = { 40 },
+				Waist = { yaw = -10, lean = 0 },
+			},
+		},
+		{
+			Time = 0.2,
+			Ease = "Out",
+			Pose = {
+				RS = { 88, 6, -30 },
+				RE = { 5 },
+				RW = { -25 },
+				LS = { 30, 18 },
+				LE = { 45 },
+				Waist = { yaw = 16, lean = 6 },
+			},
+		},
+		{
+			Time = 0.32,
+			Pose = {
+				RS = { 86, 6, -30 },
+				RE = { 5 },
+				RW = { -25 },
+				LS = { 30, 18 },
+				LE = { 45 },
+				Waist = { yaw = 14, lean = 5 },
+			},
+		},
+		{
+			Time = 0.46,
+			Pose = {
+				RS = { 10, 8 },
+				RE = { 20 },
+				RW = { 0 },
+				LS = { 10, 8 },
+				LE = { 20 },
+				Waist = { yaw = 0, lean = 2 },
+			},
+		},
 	},
 })
+
+--------------------------------------------------------------------------------
+-- Juegos de animaciones por raza
+--------------------------------------------------------------------------------
+
+local SETS = {
+	Human = { Idle = idle(HUMAN_IDLE), Walk = locomotion(HUMAN_WALK), Run = locomotion(HUMAN_RUN) },
+	Elf = { Idle = idle(ELF_IDLE), Walk = locomotion(ELF_WALK), Run = locomotion(ELF_RUN) },
+	Ogre = {
+		Idle = idle(OGRE_IDLE),
+		Walk = locomotion(OGRE_WALK),
+		Run = locomotion(OGRE_RUN),
+		Guard = Anim.GuardOgre,
+		GuardSword = Anim.GuardSwordOgre,
+	},
+	SummonedFire = { Idle = idle(FIRE_IDLE), Walk = locomotion(FIRE_WALK), Run = locomotion(FIRE_RUN) },
+	SummonedWater = { Idle = idle(WATER_IDLE), Walk = locomotion(WATER_WALK), Run = locomotion(WATER_RUN) },
+	SummonedPlant = { Idle = idle(SUMMONED_IDLE), Walk = locomotion(SUMMONED_WALK), Run = locomotion(SUMMONED_RUN) },
+}
+SETS.MajorElf = SETS.Elf
+SETS.Summoned = SETS.SummonedPlant
+
+for _, set in SETS do
+	set.Guard = set.Guard or Anim.Guard
+	set.GuardSword = set.GuardSword or Anim.GuardSword
+end
+AnimationData.Sets = SETS
+
+-- Animaciones de una raza (las que no tenga propias, las del Human)
+function AnimationData.GetSet(raceId)
+	return SETS[raceId] or SETS.Human
+end
 
 -- Combos de espada según la rareza: las mejores espadas tienen más golpes
 AnimationData.SwordCombos = {

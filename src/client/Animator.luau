@@ -1,6 +1,10 @@
--- Reproductor de animaciones de los personajes R6 (cada jugador lo ejecuta para todos):
--- mezcla reposo / andar / correr según la velocidad, salto y caída, y encima por capas
--- la espada al hombro, la guardia y los golpes (puñetazos alternos, combos de espada...).
+-- Reproductor de animaciones de los personajes R15 (cada jugador lo ejecuta para todos).
+-- Capas, de abajo arriba:
+--   1. Base: reposo / andar / correr de la raza, mezclados según la velocidad.
+--   2. Aire: salto y caída.     3. Aterrizar (tras caer fuerte).
+--   4. Espada al hombro.        5. Guardia (F).
+--   6. Golpe (puñetazos alternos, combos de espada, machaque, magia).
+--   7. Recibir daño.            8. Morir (cae y se queda tumbado).
 -- Las animaciones están en AnimationData.luau.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -17,8 +21,28 @@ local tracked = {} -- [character] = estado
 local WALK_SPEED_REFERENCE = Config.BaseSpeed -- a esta velocidad el ciclo de andar va a velocidad normal
 local RUN_SPEED_REFERENCE = Config.BaseSpeed * 1.65
 local COMBO_RESET = 1.2 -- segundos sin pegar para volver al primer golpe del combo
+local HARD_LANDING = -20 -- velocidad de caída para que se note el aterrizaje
 
--- Ataque normal según el estilo que manda el servidor
+-- Dónde está cada articulación de R15: { pieza, nombre del Motor6D }
+local JOINT_PATHS = {
+	Root = { "LowerTorso", "Root" },
+	Waist = { "UpperTorso", "Waist" },
+	Neck = { "Head", "Neck" },
+	RS = { "RightUpperArm", "RightShoulder" },
+	RE = { "RightLowerArm", "RightElbow" },
+	RW = { "RightHand", "RightWrist" },
+	LS = { "LeftUpperArm", "LeftShoulder" },
+	LE = { "LeftLowerArm", "LeftElbow" },
+	LW = { "LeftHand", "LeftWrist" },
+	RH = { "RightUpperLeg", "RightHip" },
+	RK = { "RightLowerLeg", "RightKnee" },
+	RA = { "RightFoot", "RightAnkle" },
+	LH = { "LeftUpperLeg", "LeftHip" },
+	LK = { "LeftLowerLeg", "LeftKnee" },
+	LA = { "LeftFoot", "LeftAnkle" },
+}
+
+-- Golpe normal según el estilo que manda el servidor
 local ATTACK_ANIMATION = {
 	Smash = "Smash",
 	Cast = "Cast",
@@ -45,24 +69,25 @@ end
 local function setup(character)
 	local humanoid = character:WaitForChild("Humanoid", 10)
 	local root = character:WaitForChild("HumanoidRootPart", 10)
-	local torso = character:WaitForChild("Torso", 10)
-	if not humanoid or not root or not torso then
-		warn("[Slime Rebirth] Animaciones: el personaje no es R6", character:GetFullName())
+	if not humanoid or not root then
 		return
 	end
-	local joints = {
-		Torso = root:WaitForChild("RootJoint", 5),
-		Head = torso:WaitForChild("Neck", 5),
-		RightShoulder = torso:WaitForChild("Right Shoulder", 5),
-		LeftShoulder = torso:WaitForChild("Left Shoulder", 5),
-		RightHip = torso:WaitForChild("Right Hip", 5),
-		LeftHip = torso:WaitForChild("Left Hip", 5),
-	}
-	for _, joint in joints do
-		if not joint then
+	if humanoid.RigType ~= Enum.HumanoidRigType.R15 then
+		warn("[Slime Rebirth] Animaciones: el personaje no es R15", character:GetFullName())
+		return
+	end
+
+	local joints = {}
+	for short, path in JOINT_PATHS do
+		local part = character:WaitForChild(path[1], 5)
+		local motor = part and part:WaitForChild(path[2], 5)
+		if not motor then
+			warn("[Slime Rebirth] Animaciones: falta la articulación", path[2])
 			return
 		end
+		joints[short] = motor
 	end
+
 	removeDefaultAnimations(character, humanoid)
 	character.ChildAdded:Connect(function(child)
 		if child.Name == "Animate" then
@@ -70,12 +95,13 @@ local function setup(character)
 		end
 	end)
 
-	tracked[character] = {
+	local state = {
+		Character = character,
 		Player = Players:GetPlayerFromCharacter(character),
 		Humanoid = humanoid,
 		Root = root,
 		Joints = joints,
-		-- Tiempos de cada animación de fondo
+		-- Tiempos de las animaciones de fondo
 		IdleTime = 0,
 		WalkTime = 0,
 		RunTime = 0,
@@ -91,11 +117,30 @@ local function setup(character)
 		Action = nil,
 		ActionTime = 0,
 		ActionSpeed = 1,
-		ActionWeight = 0,
 		NextHand = 1,
 		Combo = 0,
 		LastAttack = 0,
+		-- Reacciones
+		LandTime = nil,
+		HurtTime = nil,
+		DeathTime = nil,
+		WasInAir = false,
+		LowestFallSpeed = 0,
+		LastHealth = humanoid.Health,
 	}
+
+	humanoid.HealthChanged:Connect(function(health)
+		if health < state.LastHealth - 0.5 and health > 0 then
+			state.HurtTime = 0
+		end
+		state.LastHealth = health
+	end)
+	humanoid.Died:Connect(function()
+		state.DeathTime = 0
+		state.Action = nil
+	end)
+
+	tracked[character] = state
 end
 
 local function watchPlayer(player)
@@ -107,24 +152,25 @@ local function watchPlayer(player)
 	end)
 end
 
-local function getWeapon(state)
+local function getRaceId(state)
 	local player = state.Player
-	if not player then
-		return nil
-	end
-	local raceId = player:GetAttribute("Race")
-	local race = raceId and Config.Races[raceId]
-	if race and race.CanAbsorb then
+	local raceId = player and player:GetAttribute("Race")
+	return if raceId and Config.Races[raceId] then raceId else Config.DefaultRace
+end
+
+local function getWeapon(state)
+	local raceId = getRaceId(state)
+	if Config.Races[raceId].CanAbsorb then
 		return nil -- el Slime no lleva armas
 	end
-	local weaponId = player:GetAttribute("Equipped")
+	local weaponId = state.Player and state.Player:GetAttribute("Equipped")
 	return weaponId and Config.Weapons[weaponId]
 end
 
 -- Lo llama el cliente cuando el servidor avisa de un ataque (AttackFx)
 function Animator.PlayAttack(character, style)
 	local state = tracked[character]
-	if not state then
+	if not state or state.DeathTime then
 		return
 	end
 	local now = os.clock()
@@ -169,40 +215,59 @@ local function layer(pose, overlay, weight)
 	end
 end
 
+-- Animación que se reproduce una vez y se desvanece al final
+local function oneShot(pose, animation, time, fadeOut)
+	if time >= animation.Length then
+		return false
+	end
+	local weight = math.min(1, time / 0.04, (animation.Length - time) / fadeOut)
+	layer(pose, AnimationData.Sample(animation, time), weight)
+	return true
+end
+
 local function animate(state, dt)
 	local humanoid, root = state.Humanoid, state.Root
 	local player = state.Player
 	local velocity = root.AssemblyLinearVelocity
 	local speed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
-	local inAir = humanoid.FloorMaterial == Enum.Material.Air
+	local inAir = humanoid.FloorMaterial == Enum.Material.Air and not state.DeathTime
 	local sprinting = player ~= nil and player:GetAttribute("Sprinting") == true
 	local guarding = player ~= nil and player:GetAttribute("Guarding") == true
 	local weapon = getWeapon(state)
+	local set = AnimationData.GetSet(getRaceId(state))
 
 	-- Pesos suavizados
-	state.Move = approach(state.Move, if speed > 0.8 and not inAir then 1 else 0, 10, dt)
-	state.Running = approach(state.Running, if sprinting and speed > 4 then 1 else 0, 8, dt)
+	state.Move = approach(state.Move, if speed > 0.8 and not inAir then 1 else 0, 9, dt)
+	state.Running = approach(state.Running, if sprinting and speed > 4 then 1 else 0, 7, dt)
 	state.Air = approach(state.Air, if inAir then 1 else 0, 12, dt)
-	state.Guard = approach(state.Guard, if guarding then 1 else 0, 14, dt)
+	state.Guard = approach(state.Guard, if guarding then 1 else 0, 12, dt)
 	state.Carry = approach(state.Carry, if weapon and not guarding then 1 else 0, 10, dt)
 
-	-- Tiempos: andar y correr avanzan según la velocidad real (así los pies no patinan)
+	-- Andar y correr avanzan según la velocidad real (así los pies no patinan)
 	state.IdleTime += dt
 	state.WalkTime += dt * math.clamp(speed / WALK_SPEED_REFERENCE, 0.5, 1.6)
 	state.RunTime += dt * math.clamp(speed / RUN_SPEED_REFERENCE, 0.6, 1.5)
+
+	-- Aire y aterrizaje
 	if inAir then
 		state.AirTime += dt
 		state.FallTime += dt
+		state.LowestFallSpeed = math.min(state.LowestFallSpeed, velocity.Y)
 	else
+		if state.WasInAir and state.LowestFallSpeed < HARD_LANDING then
+			state.LandTime = 0
+		end
 		state.AirTime = 0
+		state.LowestFallSpeed = 0
 	end
+	state.WasInAir = inAir
 
-	-- Capa base: reposo -> andar -> correr
-	local pose = AnimationData.Sample(Anim.Idle, state.IdleTime)
-	layer(pose, AnimationData.Sample(Anim.Walk, state.WalkTime), state.Move)
-	layer(pose, AnimationData.Sample(Anim.Run, state.RunTime), state.Move * state.Running)
+	-- 1. Base: reposo -> andar -> correr (mezcla suave)
+	local pose = AnimationData.Sample(set.Idle, state.IdleTime)
+	layer(pose, AnimationData.Sample(set.Walk, state.WalkTime), state.Move)
+	layer(pose, AnimationData.Sample(set.Run, state.RunTime), state.Move * state.Running)
 
-	-- En el aire: subiendo = salto, bajando = caída
+	-- 2. En el aire: subiendo = salto, bajando = caída
 	if state.Air > 0.01 then
 		local airPose = if velocity.Y > 1
 			then AnimationData.Sample(Anim.Jump, state.AirTime)
@@ -210,22 +275,45 @@ local function animate(state, dt)
 		layer(pose, airPose, state.Air)
 	end
 
-	-- Espada al hombro y guardia (solo la parte de arriba)
-	layer(pose, AnimationData.Sample(Anim.SwordCarry, 0), state.Carry)
-	layer(pose, AnimationData.Sample(if weapon then Anim.GuardSword else Anim.Guard, state.IdleTime), state.Guard)
-
-	-- Golpe en curso: entra rápido y sale suave al final
-	local action = state.Action
-	if action then
-		state.ActionTime += dt * state.ActionSpeed
-		local t = state.ActionTime
-		if t >= action.Length then
-			state.Action = nil
-		else
-			local fadeIn = math.min(1, t / 0.04)
-			local fadeOut = math.min(1, (action.Length - t) / 0.1)
-			layer(pose, AnimationData.Sample(action, t), math.min(fadeIn, fadeOut))
+	-- 3. Aterrizar
+	if state.LandTime then
+		state.LandTime += dt
+		if not oneShot(pose, Anim.Land, state.LandTime, 0.15) then
+			state.LandTime = nil
 		end
+	end
+
+	-- 4 y 5. Espada al hombro y guardia
+	layer(pose, AnimationData.Sample(Anim.SwordCarry, 0), state.Carry)
+	layer(pose, AnimationData.Sample(if weapon then set.GuardSword else set.Guard, state.IdleTime), state.Guard)
+
+	-- 6. Golpe en curso
+	if state.Action then
+		state.ActionTime += dt * state.ActionSpeed
+		if not oneShot(pose, state.Action, state.ActionTime, 0.1) then
+			state.Action = nil
+		end
+	end
+
+	-- 7. Recibir daño
+	if state.HurtTime then
+		state.HurtTime += dt
+		if not oneShot(pose, Anim.Hurt, state.HurtTime, 0.15) then
+			state.HurtTime = nil
+		end
+	end
+
+	-- 8. Morir: cae y se queda tumbado
+	if state.DeathTime then
+		state.DeathTime += dt
+		layer(pose, AnimationData.Sample(Anim.Death, state.DeathTime), 1)
+	end
+
+	-- Los desplazamientos (agacharse, caer al suelo...) se ajustan al tamaño del personaje
+	local scale = state.Character:GetScale()
+	if scale ~= 1 then
+		local rootPose = pose.Root
+		pose.Root = CFrame.new(rootPose.Position * scale) * rootPose.Rotation
 	end
 
 	for joint, motor in state.Joints do
@@ -242,7 +330,7 @@ function Animator.Start()
 	-- PreSimulation va justo después del paso de animación de Roblox: lo nuestro manda
 	RunService.PreSimulation:Connect(function(dt)
 		for character, state in tracked do
-			if not character.Parent or state.Humanoid.Health <= 0 then
+			if not character.Parent then
 				tracked[character] = nil
 				continue
 			end

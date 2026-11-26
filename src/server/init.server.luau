@@ -81,6 +81,11 @@ Remotes.SaveSetting.OnServerEvent:Connect(function(player, settingId, enabled)
 	PlayerData.SaveSetting(player, settingId, enabled)
 end)
 
+-- Reaparecer tras morir (el servidor comprueba que de verdad estés muerto)
+Remotes.Respawn.OnServerEvent:Connect(function(player)
+	PlayerData.Respawn(player)
+end)
+
 -- Modo prueba: +500 / -500 de oro
 Remotes.DevGold.OnServerEvent:Connect(function(player, delta)
 	PlayerData.DevChangeGold(player, delta)

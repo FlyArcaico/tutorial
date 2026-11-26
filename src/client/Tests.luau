@@ -1,15 +1,15 @@
 -- Autocomprobación del cliente (solo en Roblox Studio): reproduce todas las animaciones en
--- varios momentos para ver que no dan errores ni posiciones imposibles.
+-- varios momentos para ver que no dan errores ni posiciones imposibles, y monta la cara
+-- del Slime con todas sus expresiones.
 local AnimationData = require(script.Parent.AnimationData)
+local SlimeFace = require(script.Parent.SlimeFace)
 
 local Tests = {}
 
-local BASE_JOINTS = { "Torso", "Head", "RightShoulder", "LeftShoulder", "RightHip", "LeftHip" }
-
-local function valid(cframe)
+local function valid(cframe, maxOffset)
 	local position = cframe.Position
 	local look = cframe.LookVector
-	return position == position and look == look and position.Magnitude < 5
+	return position == position and look == look and position.Magnitude < maxOffset
 end
 
 function Tests.Run()
@@ -23,23 +23,40 @@ function Tests.Run()
 		end
 	end
 
-	for name, animation in AnimationData.Animations do
+	local function checkAnimation(name, animation)
 		check(animation.Length > 0 and #animation.Frames >= 2, name .. ": necesita al menos 2 fotogramas")
 		for step = 0, 10 do
 			local pose = AnimationData.Sample(animation, animation.Length * step / 10)
 			for joint, cframe in pose do
-				check(valid(cframe), name .. ": pose inválida en " .. joint)
+				-- Solo la cadera (Root) se desplaza mucho (por ejemplo, al caer muerto)
+				check(valid(cframe, if joint == "Root" then 4 else 0.5), name .. ": pose inválida en " .. joint)
 			end
 		end
 	end
 
-	-- Las animaciones de base tienen que mover todo el cuerpo
-	for _, name in { "Idle", "Walk", "Run" } do
-		local pose = AnimationData.Sample(AnimationData.Animations[name], 0)
-		for _, joint in BASE_JOINTS do
-			check(pose[joint] ~= nil, name .. ": falta la articulación " .. joint)
-		end
+	for name, animation in AnimationData.Animations do
+		checkAnimation(name, animation)
 	end
+
+	-- Cada raza: reposo, andar y correr mueven todo el cuerpo; guardias existen
+	for raceId, set in AnimationData.Sets do
+		for _, kind in { "Idle", "Walk", "Run" } do
+			local animation = set[kind]
+			check(animation ~= nil, raceId .. ": falta " .. kind)
+			if animation then
+				checkAnimation(raceId .. "." .. kind, animation)
+				local pose = AnimationData.Sample(animation, 0)
+				for _, joint in AnimationData.Joints do
+					check(pose[joint] ~= nil, raceId .. "." .. kind .. ": falta la articulación " .. joint)
+				end
+			end
+		end
+		check(set.Guard ~= nil and set.GuardSword ~= nil, raceId .. ": faltan las guardias")
+	end
+
+	-- Morir debe acabar con el cuerpo tumbado y bajado al suelo
+	local lying = AnimationData.Sample(AnimationData.Animations.Death, AnimationData.Animations.Death.Length)
+	check(lying.Root.Position.Y < -1.5, "Morir: el cuerpo no baja hasta el suelo")
 
 	-- Los combos de espada usan animaciones que existen
 	for rarity, combo in AnimationData.SwordCombos do
@@ -47,6 +64,23 @@ function Tests.Run()
 			check(AnimationData.Animations[name] ~= nil, "Combo " .. rarity .. ": falta " .. name)
 		end
 	end
+
+	-- La cara del Slime: montar todas las expresiones sobre placas de prueba
+	local body = Instance.new("Model")
+	for _, name in { "FaceRightEye", "FaceLeftEye", "FaceMouth" } do
+		local plate = Instance.new("Part")
+		plate.Name = name
+		plate.Parent = body
+	end
+	local face = SlimeFace.Attach(body)
+	check(face ~= nil, "La cara del Slime no se pudo montar")
+	if face then
+		for _, expression in SlimeFace.Expressions do
+			local ok = pcall(face.Set, face, expression)
+			check(ok and face.Current == expression, "Expresión del Slime: " .. expression)
+		end
+	end
+	body:Destroy()
 
 	local total = passed + failed
 	if failed == 0 then

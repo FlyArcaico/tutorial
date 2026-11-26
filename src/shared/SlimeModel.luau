@@ -7,8 +7,9 @@ local SlimeModel = {}
 
 local WHITE = Color3.new(1, 1, 1)
 
-SlimeModel.HeightRatio = 0.78 -- alto del cuerpo respecto al ancho
-SlimeModel.BottomRatio = 0.52 -- distancia del centro al suelo (en altos de cuerpo)
+SlimeModel.HeightRatio = 0.82 -- alto del cuerpo respecto al ancho (un poco ovalado)
+SlimeModel.BottomRatio = 0.5 -- distancia del centro al suelo (en altos de cuerpo)
+SlimeModel.DepthRatio = 0.94 -- un poco más estrecho de delante a atrás: silueta más orgánica
 
 -- Alto del cuerpo para un tamaño de forma
 function SlimeModel.Height(size)
@@ -21,19 +22,24 @@ function SlimeModel.CenterHeight(size)
 end
 
 -- Devuelve la lista de piezas. Cada pieza:
---   Name, Role ("Body", "Core", "Shine", "Eye", "Cheek"), Size, Offset (CFrame desde el
---   centro del cuerpo), Color, Transparency, Material, Sphere (usa malla esférica)
-function SlimeModel.Pieces(form)
+--   Name, Role ("Body", "Core", "Shine", "Eye", "Face", "Cheek"), Size, Offset (CFrame desde
+--   el centro del cuerpo), Color, Transparency, Material, Sphere (usa malla esférica)
+-- options.Face:
+--   "Plates" (en el juego): placas invisibles para ojos y boca donde el cliente dibuja
+--            las expresiones (ver client/SlimeFace.luau).
+--   "Parts"  (por defecto, vista previa del menú): ojos de raya hechos con piezas.
+function SlimeModel.Pieces(form, options)
+	local faceStyle = options and options.Face or "Parts"
 	local d = form.Size
 	local h = SlimeModel.Height(d)
-	local rx, ry = d / 2, h / 2
+	local rx, ry, rz = d / 2, h / 2, d * SlimeModel.DepthRatio / 2
 	local color = form.Color
 	local pieces = {}
 
 	-- Punto de la superficie del cuerpo (para pegar cara y brillos por fuera)
 	local function surfaceZ(x, y, push)
 		local inside = 1 - (x / rx) ^ 2 - (y / ry) ^ 2
-		return -rx * math.sqrt(math.max(inside, 0)) - d * (push or 0.012)
+		return -rz * math.sqrt(math.max(inside, 0)) - d * (push or 0.012)
 	end
 
 	local function add(piece)
@@ -42,11 +48,12 @@ function SlimeModel.Pieces(form)
 		table.insert(pieces, piece)
 	end
 
-	-- Cuerpo translúcido y la base blandita
+	-- Cuerpo translúcido. La base queda casi entera dentro del cuerpo: solo ensancha un
+	-- poco la parte de abajo, sin formar un anillo.
 	add({
 		Name = "Body",
 		Role = "Body",
-		Size = Vector3.new(d, h, d),
+		Size = Vector3.new(d, h, d * SlimeModel.DepthRatio),
 		Offset = CFrame.new(),
 		Color = color,
 		Transparency = 0.2,
@@ -56,8 +63,8 @@ function SlimeModel.Pieces(form)
 	add({
 		Name = "Base",
 		Role = "Body",
-		Size = Vector3.new(d * 1.08, h * 0.42, d * 1.08),
-		Offset = CFrame.new(0, -h * 0.31, 0),
+		Size = Vector3.new(d * 0.99, h * 0.5, d * SlimeModel.DepthRatio * 0.97),
+		Offset = CFrame.new(0, -h * 0.22, 0),
 		Color = color,
 		Transparency = 0.2,
 		Material = Enum.Material.Glass,
@@ -99,12 +106,33 @@ function SlimeModel.Pieces(form)
 		Sphere = true,
 	})
 
-	-- Ojos: cada uno es una curva ◡ suave hecha con 3 trocitos, por fuera del cuerpo
+	-- Placa de la cara: invisible, pegada a la superficie y mirando hacia fuera
+	local function facePlate(name, x, y, width, height)
+		add({
+			Name = name,
+			Role = "Face",
+			Size = Vector3.new(width, height, d * 0.01),
+			Offset = CFrame.new(x, y, surfaceZ(x, y, 0.01)) * CFrame.Angles(0, -x / rx * 0.9, 0),
+			Color = WHITE,
+			Transparency = 1,
+		})
+	end
+
+	if faceStyle == "Plates" then
+		facePlate("FaceRightEye", d * 0.17, h * 0.1, d * 0.27, h * 0.24)
+		facePlate("FaceLeftEye", -d * 0.17, h * 0.1, d * 0.27, h * 0.24)
+		facePlate("FaceMouth", 0, -h * 0.08, d * 0.22, h * 0.14)
+	end
+
 	local eyeColor = Color3.fromRGB(18, 28, 60)
 	local segment = Vector3.new(d * 0.075, d * 0.034, d * 0.03)
 	for _, side in { -1, 1 } do
+		-- Ojos de piezas (solo vista previa): una curva ◡ de 3 trocitos por fuera del cuerpo
 		local ex, ey = side * d * 0.17, h * 0.08
 		for _, bit in { { 0, -d * 0.013, 0 }, { -d * 0.058, 0, -0.5 }, { d * 0.058, 0, 0.5 } } do
+			if faceStyle == "Plates" then
+				break
+			end
 			local x, y = ex + bit[1], ey + bit[2]
 			add({
 				Name = "Eye",

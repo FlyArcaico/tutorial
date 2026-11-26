@@ -300,14 +300,21 @@ local function applySlimeBody(character, form)
 	body.Name = "SlimeBody"
 	body:SetAttribute("RacePart", true)
 
-	-- En R6 el HumanoidRootPart está a 3 studs del suelo: el fondo del slime toca el suelo
+	-- Altura del HumanoidRootPart sobre el suelo: en R15 depende del avatar (HipHeight),
+	-- en R6 son 3 studs. Así el fondo del slime siempre toca el suelo.
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local rootHeight = 3
+	if humanoid and humanoid.RigType == Enum.HumanoidRigType.R15 then
+		rootHeight = humanoid.HipHeight + root.Size.Y / 2
+	end
 	local d = form.Size
-	local center = CFrame.new(0, SlimeModel.CenterHeight(d) - 3, 0)
+	local center = CFrame.new(0, SlimeModel.CenterHeight(d) - rootHeight, 0)
 	body:SetAttribute("Size", d)
 	body:SetAttribute("Height", SlimeModel.Height(d))
 	body:SetAttribute("Center", center)
 
-	for _, piece in SlimeModel.Pieces(form) do
+	-- "Plates": la cara se dibuja en el cliente con expresiones (client/SlimeFace.luau)
+	for _, piece in SlimeModel.Pieces(form, { Face = "Plates" }) do
 		local part = SlimeModel.MakePart(piece, root.CFrame * center * piece.Offset)
 		part:SetAttribute("RacePart", true)
 		local joint = Instance.new("Weld")
@@ -444,7 +451,7 @@ end
 
 -- Invocado: capa del color de su elemento y magia en las manos
 local function addSummonedLook(character, race)
-	local torso = character:FindFirstChild("Torso")
+	local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
 	if torso then
 		local function piece(name, size, offset, color, material)
 			local part = makeExtraPart(name, size, torso.CFrame * offset, color)
@@ -455,22 +462,23 @@ local function addSummonedLook(character, race)
 		local gold = Color3.fromRGB(255, 200, 70)
 		piece(
 			"Cape",
-			Vector3.new(2.1, 3, 0.15),
-			CFrame.new(0, -0.4, 0.62) * CFrame.Angles(math.rad(8), 0, 0),
+			Vector3.new(2.1, 3.2, 0.15),
+			CFrame.new(0, -0.9, 0.62) * CFrame.Angles(math.rad(8), 0, 0),
 			race.CapeColor
 		)
 		piece(
 			"CapeLining",
-			Vector3.new(1.9, 2.8, 0.05),
-			CFrame.new(0, -0.4, 0.53) * CFrame.Angles(math.rad(8), 0, 0),
+			Vector3.new(1.9, 3, 0.05),
+			CFrame.new(0, -0.9, 0.53) * CFrame.Angles(math.rad(8), 0, 0),
 			race.Color
 		)
-		piece("Collar", Vector3.new(2.2, 0.35, 1.2), CFrame.new(0, 0.95, 0.05), race.CapeColor:Lerp(Color3.new(), 0.25))
-		piece("Clasp", Vector3.new(0.35, 0.35, 0.1), CFrame.new(0, 0.85, -0.55), gold, Enum.Material.Neon)
+		piece("Collar", Vector3.new(2.2, 0.35, 1.2), CFrame.new(0, 0.7, 0.05), race.CapeColor:Lerp(Color3.new(), 0.25))
+		piece("Clasp", Vector3.new(0.35, 0.35, 0.1), CFrame.new(0, 0.6, -0.55), gold, Enum.Material.Neon)
 	end
 
-	for _, armName in { "Right Arm", "Left Arm" } do
-		local arm = character:FindFirstChild(armName)
+	-- Magia en las manos (R15: RightHand / LeftHand; R6: brazos)
+	for _, handNames in { { "RightHand", "Right Arm" }, { "LeftHand", "Left Arm" } } do
+		local arm = character:FindFirstChild(handNames[1]) or character:FindFirstChild(handNames[2])
 		if arm then
 			if race.Element == "Fire" then
 				local fire = Instance.new("Fire")
@@ -510,7 +518,8 @@ local function attachWeapon(character, weaponId)
 		old:Destroy()
 	end
 	local weapon = weaponId and Config.Weapons[weaponId]
-	local arm = character:FindFirstChild("Right Arm")
+	-- R15: la espada va en la mano (RightHand); R6: al final del brazo
+	local arm = character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm")
 	if not weapon or not arm then
 		return
 	end
@@ -520,8 +529,9 @@ local function attachWeapon(character, weaponId)
 	local model = Instance.new("Model")
 	model.Name = "EquippedWeapon"
 
-	-- La espada sale de la mano hacia delante, un poco inclinada hacia arriba
-	local hand = arm.CFrame * CFrame.new(0, -arm.Size.Y / 2 + 0.15 * s, 0) * CFrame.Angles(math.rad(10), 0, 0)
+	-- La empuñadura queda dentro del puño y la hoja sale hacia delante, un poco hacia arriba
+	local gripOffset = if arm.Name == "RightHand" then 0 else -arm.Size.Y / 2 + 0.15 * s
+	local hand = arm.CFrame * CFrame.new(0, gripOffset, 0) * CFrame.Angles(math.rad(10), 0, 0)
 	local function piece(name, size, offset, color, props)
 		local part = makeExtraPart(name, size * s, hand * CFrame.new(offset * s), color)
 		for key, value in props or {} do
@@ -616,9 +626,9 @@ local function attachWeapon(character, weaponId)
 	model.Parent = character
 end
 
--- Crea el personaje SIEMPRE en R6 a partir del avatar del jugador (sin depender de la
--- configuración de Studio) y sin el script "Animate" de Roblox: las animaciones las
--- hace nuestro sistema (client/Animator.luau).
+-- Crea el personaje SIEMPRE en R15 (tiene codos y rodillas, necesarios para animaciones
+-- naturales) a partir del avatar del jugador, sin depender de la configuración de Studio
+-- y sin el script "Animate" de Roblox: las animaciones las hace client/Animator.luau.
 local function loadCharacter(player)
 	if not PlayerData.Get(player) then
 		return
@@ -636,7 +646,7 @@ local function loadCharacter(player)
 	description = description or Instance.new("HumanoidDescription")
 
 	local ok, rig = pcall(function()
-		return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R6)
+		return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
 	end)
 	if not PlayerData.Get(player) then
 		if ok and rig then
@@ -645,7 +655,7 @@ local function loadCharacter(player)
 		return -- volvió al menú mientras cargaba
 	end
 	if not ok or not rig then
-		warn("[Slime Rebirth] No se pudo crear el personaje R6, se usa el normal:", rig)
+		warn("[Slime Rebirth] No se pudo crear el personaje R15, se usa el normal:", rig)
 		player:LoadCharacter()
 		return
 	end
@@ -658,6 +668,8 @@ local function loadCharacter(player)
 	local humanoid = rig:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		humanoid.DisplayName = player.DisplayName
+		-- Sin la "explosión" de Roblox al morir: el cuerpo se queda entero para la animación
+		humanoid.BreakJointsOnDeath = false
 	end
 
 	-- Aparecer en el punto de aparición del pueblo
@@ -668,9 +680,36 @@ local function loadCharacter(player)
 	if player.Character then
 		player.Character:Destroy()
 	end
-	player.Character = rig
+	-- IMPORTANTE: primero meterlo en el mundo y luego asignarlo. Si se asigna antes,
+	-- CharacterAdded se ejecuta con el personaje fuera del mundo y no se preparaba bien
+	-- (por eso antes nunca se reaparecía al morir).
 	rig.Parent = Workspace
+	player.Character = rig
 end
+
+-- Reaparecer (lo pide el jugador con el botón de la pantalla de derrota).
+-- El servidor comprueba que esté jugando y que de verdad esté muerto.
+local lastRespawn = {} -- [Player] = tiempo
+function PlayerData.Respawn(player)
+	if not PlayerData.Get(player) then
+		return
+	end
+	local now = os.clock()
+	if now - (lastRespawn[player] or 0) < 2 then
+		return
+	end
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if humanoid and humanoid.Health > 0 then
+		return -- está vivo: no hace falta
+	end
+	lastRespawn[player] = now
+	loadCharacter(player)
+end
+
+Players.PlayerRemoving:Connect(function(player)
+	lastRespawn[player] = nil
+end)
 
 local function onCharacterAdded(player, character)
 	local slot = PlayerData.Get(player)
@@ -683,8 +722,13 @@ local function onCharacterAdded(player, character)
 	if not humanoid then
 		return
 	end
-	if humanoid.RigType ~= Enum.HumanoidRigType.R6 then
-		warn("[Slime Rebirth] El personaje no es R6. Revisa Game Settings > Avatar > Avatar Type = R6")
+	if humanoid.RigType ~= Enum.HumanoidRigType.R15 then
+		warn("[Slime Rebirth] El personaje no es R15: las animaciones no funcionarán bien")
+	end
+	humanoid.BreakJointsOnDeath = false
+	-- Esperar a que esté en el mundo (por si se asignó antes de meterlo)
+	if not character:IsDescendantOf(Workspace) then
+		character.AncestryChanged:Wait()
 	end
 
 	if race.CanAbsorb then
@@ -698,9 +742,6 @@ local function onCharacterAdded(player, character)
 		local animate = character:FindFirstChild("Animate")
 		if animate then
 			animate:Destroy()
-		end
-		if character.Parent == nil then
-			return
 		end
 
 		if race.BodyScale ~= 1 then
@@ -730,13 +771,15 @@ local function onCharacterAdded(player, character)
 
 	applyStats(player, slot, true)
 
-	-- Reaparecer al morir (CharacterAutoLoads está desactivado por el menú)
+	-- Al morir: el cuerpo se queda quieto donde cayó (el cliente anima la caída) y el
+	-- jugador reaparece pulsando el botón de la pantalla de derrota (PlayerData.Respawn)
 	humanoid.Died:Connect(function()
-		task.delay(4, function()
-			if player.Parent and player.Character == character and PlayerData.Get(player) then
-				loadCharacter(player)
-			end
-		end)
+		humanoid.AutoRotate = false
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if root then
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.Anchored = true
+		end
 	end)
 end
 

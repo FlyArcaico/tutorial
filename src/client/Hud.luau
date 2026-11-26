@@ -19,6 +19,7 @@ local sprintRemote = remotes:WaitForChild("Sprint")
 local devLevelRemote = remotes:WaitForChild("DevLevel")
 local devGoldRemote = remotes:WaitForChild("DevGold")
 local guardRemote = remotes:WaitForChild("Guard")
+local respawnRemote = remotes:WaitForChild("Respawn")
 
 local player = Players.LocalPlayer
 local Colors = UI.Colors
@@ -589,17 +590,92 @@ local damageFlash = create("Frame", {
 	ZIndex = 0,
 }, gui)
 
-local deathLabel = UI.label(gui, {
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.fromScale(0.5, 0.4),
-	Size = UDim2.new(0.8, 0, 0, 60),
-	Font = Enum.Font.GothamBlack,
-	TextSize = 36,
-	TextColor3 = Color3.fromRGB(255, 110, 110),
-	TextStrokeTransparency = 0.2,
+-- Pantalla de derrota: el personaje cae y se queda en el suelo; el botón pide al servidor
+-- reaparecer (el servidor comprueba que de verdad estés muerto).
+local defeatScreen = create("CanvasGroup", {
+	Size = UDim2.fromScale(1, 1),
+	BackgroundColor3 = Color3.fromRGB(30, 0, 8),
+	BackgroundTransparency = 0.45,
+	GroupTransparency = 1,
 	Visible = false,
-	Text = "Has caído... reapareciendo",
+	ZIndex = 20,
+}, gui)
+create("UIGradient", {
+	Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.2),
+		NumberSequenceKeypoint.new(0.5, 0.75),
+		NumberSequenceKeypoint.new(1, 0.2),
+	}),
+	Rotation = 90,
+}, defeatScreen)
+UI.label(defeatScreen, {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromScale(0.5, 0.36),
+	Size = UDim2.new(0.9, 0, 0, 70),
+	Font = UI.Fonts.Title,
+	TextSize = 62,
+	TextColor3 = Color3.fromRGB(255, 95, 95),
+	TextStrokeColor3 = Color3.fromRGB(60, 0, 0),
+	TextStrokeTransparency = 0,
+	Text = "Has caído",
 })
+UI.label(defeatScreen, {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(0.5, 0, 0.36, 52),
+	Size = UDim2.new(0.9, 0, 0, 24),
+	Font = UI.Fonts.Title,
+	TextSize = 18,
+	TextColor3 = Color3.fromRGB(255, 210, 210),
+	TextStrokeTransparency = 0.5,
+	Text = "~ Tu viaje no termina aquí ~",
+})
+local respawnButton = UI.button(defeatScreen, "Reaparecer", Color3.fromRGB(190, 60, 70), {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromScale(0.5, 0.56),
+	Size = UDim2.fromOffset(240, 56),
+	TextSize = 22,
+	Active = true,
+})
+local respawnHint = UI.label(defeatScreen, {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(0.5, 0, 0.56, 46),
+	Size = UDim2.new(0.9, 0, 0, 20),
+	TextSize = 14,
+	TextColor3 = Color3.fromRGB(240, 200, 200),
+	Text = "Volverás a la plaza de Willowbrook",
+})
+
+local waitingRespawn = false
+local function showDefeat(visible)
+	if visible then
+		defeatScreen.Visible = true
+		waitingRespawn = false
+		respawnButton.Text = "Reaparecer"
+		respawnHint.Text = "Volverás a la plaza de Willowbrook"
+		-- Aparece poco a poco mientras el personaje cae
+		TweenService:Create(defeatScreen, TweenInfo.new(0.8, Enum.EasingStyle.Quad), { GroupTransparency = 0 }):Play()
+	else
+		defeatScreen.Visible = false
+		defeatScreen.GroupTransparency = 1
+	end
+end
+
+respawnButton.Activated:Connect(function()
+	if waitingRespawn then
+		return
+	end
+	waitingRespawn = true
+	respawnButton.Text = "Reapareciendo..."
+	respawnRemote:FireServer()
+	-- Si por lo que sea no llega el personaje nuevo, permitir volver a intentarlo
+	task.delay(4, function()
+		if defeatScreen.Visible and waitingRespawn then
+			waitingRespawn = false
+			respawnButton.Text = "Reaparecer"
+			respawnHint.Text = "No se pudo reaparecer, vuelve a intentarlo"
+		end
+	end)
+end)
 
 --------------------------------------------------------------------------------
 -- Estado y acciones
@@ -1028,7 +1104,7 @@ end)
 
 local function onCharacterAdded(character)
 	local humanoid = character:WaitForChild("Humanoid")
-	deathLabel.Visible = false
+	showDefeat(false)
 
 	local function updateHealth()
 		local ratio = math.clamp(humanoid.Health / math.max(humanoid.MaxHealth, 1), 0, 1)
@@ -1047,7 +1123,14 @@ local function onCharacterAdded(character)
 	end)
 	humanoid:GetPropertyChangedSignal("MaxHealth"):Connect(updateHealth)
 	humanoid.Died:Connect(function()
-		deathLabel.Visible = true
+		setSprint(false)
+		setGuard(false)
+		-- Dejar que se vea la caída antes de mostrar la pantalla
+		task.delay(0.9, function()
+			if humanoid.Parent and humanoid.Health <= 0 and gui.Enabled then
+				showDefeat(true)
+			end
+		end)
 	end)
 	updateHealth()
 end
@@ -1073,7 +1156,7 @@ function Hud.Hide()
 	setSprint(false)
 	setGuard(false)
 	gui.Enabled = false
-	deathLabel.Visible = false
+	showDefeat(false)
 end
 
 return Hud

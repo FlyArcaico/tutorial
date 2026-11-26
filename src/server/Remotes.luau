@@ -37,6 +37,7 @@ local Remotes = {
 	AttackFx = make("RemoteEvent", "AttackFx"), -- servidor -> todos: animación de ataque de un personaje
 	Guard = make("RemoteEvent", "Guard"), -- cliente -> servidor: empezar/dejar de bloquear (F)
 	DevGold = make("RemoteEvent", "DevGold"), -- modo prueba: +500 / -500 de oro
+	Respawn = make("RemoteEvent", "Respawn"), -- cliente -> servidor: botón "Reaparecer" tras morir
 }
 
 folder.Parent = ReplicatedStorage

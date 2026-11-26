@@ -94,6 +94,17 @@ function Tests.Run(modules)
 		end
 		check((roles.Body or 0) >= 1 and roles.Core == 1, form.Name .. ": faltan el cuerpo o la luz interior")
 		check(roles.Eye == 6, form.Name .. ": los ojos deberían tener 6 trocitos")
+
+		-- En el juego, la cara va en 3 placas (ojo derecho, izquierdo y boca) por fuera del cuerpo
+		local faces = 0
+		for _, piece in SlimeModel.Pieces(form, { Face = "Plates" }) do
+			if piece.Role == "Face" then
+				faces += 1
+				check(piece.Offset.Position.Z < -form.Size * 0.3, form.Name .. ": la cara queda dentro del cuerpo")
+			end
+			check(piece.Role ~= "Eye", form.Name .. ": con placas no debería haber ojos de piezas")
+		end
+		check(faces == 3, form.Name .. ": faltan placas de la cara")
 	end
 
 	-- Slime: construirlo de verdad sobre un personaje de prueba
@@ -113,7 +124,8 @@ function Tests.Run(modules)
 				welds += 1
 			end
 		end
-		check(welds == #SlimeModel.Pieces(Config.Forms[1]), "Al Slime le faltan uniones animables")
+		check(welds == #SlimeModel.Pieces(Config.Forms[1], { Face = "Plates" }), "Al Slime le faltan uniones animables")
+		check(body:FindFirstChild("FaceMouth") ~= nil, "Al Slime le falta la placa de la boca")
 		check(body:GetAttribute("Center") ~= nil, "El Slime no tiene centro para animarlo")
 	end
 	dummy:Destroy()

@@ -9,6 +9,8 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
+local SlimeFace = require(script.Parent.SlimeFace)
+
 local SlimeAnimator = {}
 
 local tracked = {} -- [SlimeBody] = estado
@@ -95,9 +97,14 @@ local function track(body)
 		return
 	end
 
+	-- Cara con expresiones (si el cuerpo tiene placas de cara)
+	state.Face = SlimeFace.Attach(body)
+	state.LastHurt = -10
+
 	humanoid.HealthChanged:Connect(function(health)
 		if health < state.LastHealth - 0.5 then
 			state.Hurt = 1
+			state.LastHurt = os.clock()
 		end
 		state.LastHealth = health
 	end)
@@ -241,7 +248,7 @@ local function animate(state, dt, now)
 	end
 
 	-- Aplicar: el fondo del slime se queda pegado al suelo (o al punto del salto)
-	local bottom = h * 0.52
+	local bottom = h * 0.5 -- igual que SlimeModel.BottomRatio
 	local pivot = state.Center
 		* CFrame.new(0, -bottom + dy, dz)
 		* CFrame.Angles(-lean, 0, 0)
@@ -260,6 +267,31 @@ local function animate(state, dt, now)
 		if melt > 0 then
 			piece.Part.Transparency = piece.BaseTransparency + (1 - piece.BaseTransparency) * melt * 0.8
 		end
+	end
+
+	-- Expresión de la cara según lo que esté haciendo
+	if state.Face then
+		local dead = state.DeathStart ~= nil
+		local hurt = now - state.LastHurt < 0.7 -- acaba de recibir un golpe
+		local attacking = attackTime < 0.5
+		local casting = state.Cast > 0.25 -- usa una habilidad o absorbe
+		local running = state.Run > 0.5 and state.Move > 0.5
+		local lowHealth = humanoid.Health < humanoid.MaxHealth * 0.35
+		local idleSmile = state.Move < 0.2 and (now + state.Phase) % 9 < 1.4 -- de vez en cuando sonríe
+
+		local expression = "Normal"
+		if dead or (lowHealth and not (hurt or attacking or casting or running)) then
+			expression = "Sad"
+		elseif hurt then
+			expression = "Surprised"
+		elseif attacking then
+			expression = "Angry"
+		elseif casting then
+			expression = "Focused"
+		elseif running or idleSmile then
+			expression = "Happy"
+		end
+		state.Face:Set(expression)
 	end
 
 	-- Luz interior: más fuerte al lanzar magia
