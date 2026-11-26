@@ -160,6 +160,7 @@ local function applyStats(player, slot, heal)
 
 	-- Monsters lee esto para reducir el daño mágico
 	character:SetAttribute("MagicResist", race.MagicResist)
+	character:SetAttribute("PhysicalResist", race.PhysicalResist)
 end
 
 --------------------------------------------------------------------------------
@@ -332,35 +333,85 @@ local function addElfHat(character, head, s)
 	)
 end
 
--- Ogre: cuernos
+-- Ogre: cuernos pequeños y negros
 local function addOgreHorns(character, head, s)
 	for _, side in { -1, 1 } do
 		addToHead(
 			character,
 			head,
 			"OgreHorn",
-			Vector3.new(0.9, 0.3, 0.3) * s,
-			CFrame.new(side * 0.4 * s, 0.75 * s, 0) * CFrame.Angles(0, 0, math.rad(90 - side * 25)),
-			Color3.fromRGB(240, 230, 200),
+			Vector3.new(0.5, 0.2, 0.2) * s,
+			CFrame.new(side * 0.32 * s, 0.68 * s, -0.1 * s) * CFrame.Angles(0, 0, math.rad(90 - side * 20)),
+			Color3.fromRGB(25, 22, 25),
+			Enum.PartType.Cylinder
+		)
+		addToHead(
+			character,
+			head,
+			"OgreHornTip",
+			Vector3.new(0.22, 0.12, 0.12) * s,
+			CFrame.new(side * 0.4 * s, 0.95 * s, -0.1 * s) * CFrame.Angles(0, 0, math.rad(90 - side * 35)),
+			Color3.fromRGB(10, 10, 12),
 			Enum.PartType.Cylinder
 		)
 	end
 end
 
--- Invocado: fuego en las manos
-local function addFireHands(character)
+-- Invocado: capa del color de su elemento y magia en las manos
+local function addSummonedLook(character, race)
+	local torso = character:FindFirstChild("Torso")
+	if torso then
+		local function piece(name, size, offset, color, material)
+			local part = makeExtraPart(name, size, torso.CFrame * offset, color)
+			part.Material = material or Enum.Material.Fabric
+			weld(part, torso)
+			part.Parent = character
+		end
+		local gold = Color3.fromRGB(255, 200, 70)
+		piece(
+			"Cape",
+			Vector3.new(2.1, 3, 0.15),
+			CFrame.new(0, -0.4, 0.62) * CFrame.Angles(math.rad(8), 0, 0),
+			race.CapeColor
+		)
+		piece(
+			"CapeLining",
+			Vector3.new(1.9, 2.8, 0.05),
+			CFrame.new(0, -0.4, 0.53) * CFrame.Angles(math.rad(8), 0, 0),
+			race.Color
+		)
+		piece("Collar", Vector3.new(2.2, 0.35, 1.2), CFrame.new(0, 0.95, 0.05), race.CapeColor:Lerp(Color3.new(), 0.25))
+		piece("Clasp", Vector3.new(0.35, 0.35, 0.1), CFrame.new(0, 0.85, -0.55), gold, Enum.Material.Neon)
+	end
+
 	for _, armName in { "Right Arm", "Left Arm" } do
 		local arm = character:FindFirstChild(armName)
 		if arm then
-			local fire = Instance.new("Fire")
-			fire.Size = 2
-			fire.Heat = 4
-			fire.Color = Color3.fromRGB(255, 120, 30)
-			fire.SecondaryColor = Color3.fromRGB(255, 220, 80)
-			fire.Parent = arm
+			if race.Element == "Fire" then
+				local fire = Instance.new("Fire")
+				fire.Size = 2
+				fire.Heat = 4
+				fire.Color = Color3.fromRGB(255, 120, 30)
+				fire.SecondaryColor = Color3.fromRGB(255, 220, 80)
+				fire.Parent = arm
+			else
+				local attachment = Instance.new("Attachment")
+				attachment.Position = Vector3.new(0, -arm.Size.Y / 2, 0)
+				attachment.Parent = arm
+				local particles = Instance.new("ParticleEmitter")
+				particles.Color = ColorSequence.new(race.Color)
+				particles.LightEmission = 0.6
+				particles.Size = NumberSequence.new(0.35, 0)
+				particles.Rate = 18
+				particles.Lifetime = NumberRange.new(0.5, 0.9)
+				particles.Speed = NumberRange.new(1, 2.5)
+				particles.SpreadAngle = Vector2.new(180, 180)
+				particles.Acceleration = if race.Element == "Water" then Vector3.new(0, -5, 0) else Vector3.new(0, 2, 0)
+				particles.Parent = attachment
+			end
 
 			local light = Instance.new("PointLight")
-			light.Color = Color3.fromRGB(255, 140, 50)
+			light.Color = race.Color
 			light.Range = 8
 			light.Parent = arm
 		end
@@ -425,8 +476,8 @@ local function onCharacterAdded(player, character)
 				addOgreHorns(character, head, s)
 			end
 		end
-		if race.Fire then
-			addFireHands(character)
+		if race.Element then
+			addSummonedLook(character, race)
 		end
 	end
 
@@ -499,7 +550,7 @@ function PlayerData.SetRace(player, raceId)
 	end
 
 	local slot = session.Profile.Data.Slots[session.SlotIndex]
-	slot.Race = raceId
+	slot.Race = Config.ResolveRace(raceId, rng) -- "Invocado" -> uno de sus tipos al azar
 	return { Ok = true, Race = slot.Race, Spins = slot.Spins }
 end
 
@@ -511,6 +562,8 @@ function PlayerData.Play(player)
 	session.Playing = true
 
 	local slot = PlayerData.Get(player)
+	-- Datos antiguos: un "Invocado" sin tipo recibe uno al azar
+	slot.Race = Config.ResolveRace(slot.Race, rng)
 	local race = Config.Races[slot.Race]
 	updateAttributes(player, slot)
 	task.spawn(loadCharacter, player)
@@ -582,7 +635,7 @@ end
 -- Lo llama Monsters cuando un jugador derrota a un monstruo.
 -- Da el oro (todas las razas) y la XP (todas menos Slime, que la gana al absorber).
 -- Devuelve true si debe aparecer una esencia (solo para Slime).
-function PlayerData.OnMonsterKilled(player, monsterId)
+function PlayerData.OnMonsterKilled(player, monsterId, level)
 	local slot = PlayerData.Get(player)
 	local def = Config.Monsters[monsterId]
 	if not slot or not def then
@@ -598,13 +651,17 @@ function PlayerData.OnMonsterKilled(player, monsterId)
 		return true
 	end
 
-	local xp = math.floor(def.XP * race.XPMult + 0.5)
-	notify(player, "Derrotaste a " .. def.DisplayName .. "  +" .. xp .. " XP  +" .. gold .. " oro", WHITE)
+	local xp = math.floor(Config.MonsterStats(monsterId, level).XP * race.XPMult + 0.5)
+	notify(
+		player,
+		"Derrotaste a " .. def.DisplayName .. " Nv. " .. level .. "  +" .. xp .. " XP  +" .. gold .. " oro",
+		WHITE
+	)
 	PlayerData.AddXP(player, xp)
 	return false
 end
 
-function PlayerData.Absorb(player, monsterId)
+function PlayerData.Absorb(player, monsterId, level)
 	local slot = PlayerData.Get(player)
 	local def = Config.Monsters[monsterId]
 	if not slot or not def then
@@ -612,6 +669,7 @@ function PlayerData.Absorb(player, monsterId)
 	end
 
 	slot.Absorbed[monsterId] = (slot.Absorbed[monsterId] or 0) + 1
+	local xp = Config.MonsterStats(monsterId, level).XP
 
 	local skillId = def.Skill
 	if skillId and not slot.Skills[skillId] then
@@ -620,11 +678,27 @@ function PlayerData.Absorb(player, monsterId)
 		notify(player, "¡Habilidad robada: " .. skill.DisplayName .. "! " .. skill.Description, CYAN)
 		applyStats(player, slot, false)
 	else
-		notify(player, "Absorbiste " .. def.DisplayName .. "  +" .. def.XP .. " XP", WHITE)
+		notify(player, "Absorbiste " .. def.DisplayName .. " Nv. " .. level .. "  +" .. xp .. " XP", WHITE)
 	end
 
-	PlayerData.AddXP(player, def.XP)
+	PlayerData.AddXP(player, xp)
 	updateAttributes(player, slot)
+end
+
+-- La absorción falló: la esencia se pierde, pero da un poco de XP
+function PlayerData.AbsorbFailed(player, monsterId, level, chance)
+	local slot = PlayerData.Get(player)
+	local def = Config.Monsters[monsterId]
+	if not slot or not def then
+		return
+	end
+	local xp = math.floor(Config.MonsterStats(monsterId, level).XP * 0.3)
+	notify(
+		player,
+		"La absorción falló (" .. math.floor(chance * 100) .. "% de probabilidad)  +" .. xp .. " XP",
+		Color3.fromRGB(255, 140, 140)
+	)
+	PlayerData.AddXP(player, xp)
 end
 
 --------------------------------------------------------------------------------

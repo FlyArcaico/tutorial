@@ -23,11 +23,29 @@ Config.DefaultRace = "Human"
 Config.Testers = {}
 
 --------------------------------------------------------------------------------
--- Velocidad
+-- Velocidad, combate y maná
 --------------------------------------------------------------------------------
 
--- Velocidad base: la del Human y la de los monstruos
-Config.BaseSpeed = 16
+Config.BaseSpeed = 16 -- velocidad del Human y de los monstruos
+
+Config.Attack = {
+	Range = 8, -- studs delante del personaje (más la mitad de su tamaño)
+	Cooldown = 0.5, -- segundos entre ataques
+}
+
+Config.OutOfCombatDelay = 4 -- segundos sin pegar ni recibir daño para estar "fuera de combate"
+Config.ManaRegenInCombat = 0.01 -- fracción del maná máximo por segundo en combate
+
+-- Sobrecarga de energía (Invocados): cada habilidad suma "calor"; si se acumula demasiado,
+-- baja el daño y la velocidad durante unos segundos.
+Config.Overload = {
+	HeatPerCast = 1,
+	DecayPerSecond = 0.25,
+	Threshold = 3.5,
+	Duration = 5,
+	DamageMult = 0.7,
+	SpeedMult = 0.75,
+}
 
 --------------------------------------------------------------------------------
 -- Rarezas y razas
@@ -45,8 +63,33 @@ Config.Rarities = {
 -- Razas principales que salen en el Spin, de la más rara a la más común
 Config.RaceOrder = { "Slime", "Summoned", "Ogre", "Elf", "Human" }
 
--- Orden en que se muestran en el menú (incluye subtipos debajo de su raza)
-Config.DisplayOrder = { "Slime", "Summoned", "Ogre", "Elf", "MajorElf", "Human" }
+-- Orden en que se muestran en el menú (subtipos y tipos debajo de su raza)
+Config.DisplayOrder = {
+	"Slime",
+	"Summoned",
+	"SummonedFire",
+	"SummonedWater",
+	"SummonedPlant",
+	"Ogre",
+	"Elf",
+	"MajorElf",
+	"Human",
+}
+
+-- Pasivas comunes de todos los Invocados
+local SUMMONED_TRAITS = {
+	"Cuerpo Impregnado de Maná: +30% de maná máximo (500) y regeneración fuera de combate",
+	"Barrera Multidimensional: -12% daño mágico recibido",
+	"Sobrecarga de Energía: si abusas de las habilidades, -30% daño y -25% velocidad",
+}
+
+local function summonedTraits(abilityLine)
+	local traits = { abilityLine }
+	for _, trait in SUMMONED_TRAITS do
+		table.insert(traits, trait)
+	end
+	return traits
+end
 
 Config.Races = {
 	Slime = {
@@ -54,39 +97,89 @@ Config.Races = {
 		Rarity = "Mythic",
 		Color = Color3.fromRGB(90, 170, 255),
 		Description = "Absorbe a los enemigos derrotados para volverse más fuerte y les roba sus habilidades.",
-		Traits = { "Absorber (F): roba habilidades", "Evoluciona al subir de nivel" },
+		Traits = {
+			"Absorber (F): roba habilidades. La probabilidad sube con tu nivel",
+			"Cuerpo de Slime: -25% daño físico recibido",
+			"Regeneración: recupera vida fuera de combate",
+			"Evoluciona al subir de nivel",
+		},
 		CanAbsorb = true,
+		MaxMana = 120,
+		PhysicalResist = 0.25,
+		HealthRegen = 0.03, -- fracción de vida por segundo fuera de combate
 	},
+
+	-- Invocado: al salir en el Spin se elige uno de sus 3 tipos al azar
 	Summoned = {
 		Name = "Invocado",
 		Rarity = "Legendary",
 		Color = Color3.fromRGB(255, 130, 40),
-		Description = "Llegó de otro mundo con poderes innatos: controla el fuego y ataca con llamas.",
-		Traits = { "Ataques de fuego: +30% daño", "+4 de alcance de ataque" },
-		DamageMult = 1.3,
-		RangeBonus = 4,
-		Fire = true,
+		Description = "Llegó de otro mundo con un poder elemental innato. Hay 3 tipos: Fuego, Agua y Planta.",
+		Traits = SUMMONED_TRAITS,
+		Variants = { "SummonedFire", "SummonedWater", "SummonedPlant" },
 	},
+	SummonedFire = {
+		Name = "Invocado de Fuego",
+		Rarity = "Legendary",
+		VariantOf = "Summoned",
+		Element = "Fire",
+		Color = Color3.fromRGB(255, 110, 40),
+		CapeColor = Color3.fromRGB(190, 30, 35),
+		Description = "Domina el fuego: lanza bolas de fuego que explotan y queman a los enemigos.",
+		Traits = summonedTraits("Bola de Fuego (E): explota en área y quema"),
+		Abilities = { "Fireball" },
+	},
+	SummonedWater = {
+		Name = "Invocado de Agua",
+		Rarity = "Legendary",
+		VariantOf = "Summoned",
+		Element = "Water",
+		Color = Color3.fromRGB(70, 170, 255),
+		CapeColor = Color3.fromRGB(30, 80, 190),
+		Description = "Domina el agua: lanza torrentes que empujan y ralentizan a los enemigos.",
+		Traits = summonedTraits("Torrente de Agua (E): empuja y ralentiza en línea"),
+		Abilities = { "WaterTorrent" },
+	},
+	SummonedPlant = {
+		Name = "Invocado de Planta",
+		Rarity = "Legendary",
+		VariantOf = "Summoned",
+		Element = "Plant",
+		Color = Color3.fromRGB(90, 200, 80),
+		CapeColor = Color3.fromRGB(35, 130, 50),
+		Description = "Domina las plantas: atrapa a los enemigos con raíces y roba su vida.",
+		Traits = summonedTraits("Raíces Atrapadoras (E): inmoviliza en área y te cura"),
+		Abilities = { "PlantRoots" },
+	},
+
 	Ogre = {
 		Name = "Ogre",
 		Rarity = "Epic",
 		Color = Color3.fromRGB(190, 110, 90),
-		Description = "Un guerrero enorme con más fuerza, defensa y velocidad.",
-		Traits = { "+50% vida", "+25% daño", "+15% velocidad", "50% más grande" },
+		Description = "Un guerrero enorme con el cuerpo fortalecido de forma innata. Al estar herido entra en modo Berserker.",
+		Traits = {
+			"Fortalecimiento Corporal: +50% vida, +25% fuerza, +15% velocidad, -15% daño físico",
+			"Berserker: con menos del 50% de vida, +30% daño y +10% velocidad",
+			"Mucho más grande que un humano",
+		},
 		HealthMult = 1.5,
 		DamageMult = 1.25,
 		SpeedMult = 1.15,
-		BodyScale = 1.5,
+		PhysicalResist = 0.15,
+		BodyScale = 1.8,
+		MaxMana = 60,
+		Berserk = { Threshold = 0.5, DamageMult = 1.3, SpeedMult = 1.1 },
 	},
 	Elf = {
 		Name = "Elf",
 		Rarity = "Rare",
 		Color = Color3.fromRGB(100, 200, 110),
 		Description = "Inteligente y ágil: aprende más rápido y se mueve con rapidez.",
-		Traits = { "+15% velocidad", "+25% XP", "+10% daño" },
+		Traits = { "+15% velocidad", "+25% XP", "+10% daño", "+50% maná" },
 		XPMult = 1.25,
 		SpeedMult = 1.15,
 		DamageMult = 1.1,
+		MaxMana = 150,
 		ElfEars = true,
 	},
 	MajorElf = {
@@ -100,7 +193,7 @@ Config.Races = {
 			"Air Manipulation (E): cortes de viento a distancia",
 			"+50% daño mágico",
 			"Resiste la magia: -50% daño mágico recibido",
-			"+3 de oro por monstruo de bajo nivel",
+			"+3 de oro por monstruo",
 			"+15% velocidad, +25% XP",
 		},
 		XPMult = 1.25,
@@ -110,6 +203,7 @@ Config.Races = {
 		MagicResist = 0.5,
 		GoldMult = 3,
 		BodyScale = 1.15,
+		MaxMana = 220,
 		ElfEars = true,
 		ElfHat = true,
 		Abilities = { "AirSlash" },
@@ -119,7 +213,7 @@ Config.Races = {
 		Rarity = "Common",
 		Color = Color3.fromRGB(230, 230, 230),
 		Description = "Un humano común. Nada especial... por ahora.",
-		Traits = { "Sin bonus (velocidad base)" },
+		Traits = { "Sin bonus (velocidad y maná base)" },
 	},
 }
 
@@ -132,13 +226,37 @@ for _, race in Config.Races do
 	race.RangeBonus = race.RangeBonus or 0
 	race.MagicDamageMult = race.MagicDamageMult or 1
 	race.MagicResist = race.MagicResist or 0
+	race.PhysicalResist = race.PhysicalResist or 0
+	race.HealthRegen = race.HealthRegen or 0
 	race.GoldMult = race.GoldMult or 1
 	race.BodyScale = race.BodyScale or 1
+	race.MaxMana = race.MaxMana or 100
+	race.ManaRegenOutOfCombat = race.ManaRegenOutOfCombat or 0.03
 	race.Abilities = race.Abilities or {}
 	race.CanAbsorb = race.CanAbsorb == true
 end
 
--- Devuelve una raza al azar según las probabilidades de su rareza (y sus subtipos)
+-- Ajustes comunes de los tipos de Invocado
+for _, race in Config.Races do
+	if race.VariantOf == "Summoned" then
+		race.MaxMana = 500 -- "mucho más que un humano"
+		race.ManaRegenOutOfCombat = 0.08
+		race.MagicResist = 0.12
+		race.DamageMult = 1.1
+		race.Overload = true
+	end
+end
+
+-- Si la raza tiene tipos (Invocado), elige uno al azar. Si no, la deja igual.
+function Config.ResolveRace(raceId, rng)
+	local race = Config.Races[raceId]
+	if race and race.Variants then
+		return race.Variants[rng:NextInteger(1, #race.Variants)]
+	end
+	return raceId
+end
+
+-- Devuelve una raza al azar según las probabilidades de su rareza (y sus subtipos/tipos)
 function Config.RollRace(rng)
 	local roll = rng:NextInteger(1, 1000)
 	local total = 0
@@ -156,7 +274,13 @@ function Config.RollRace(rng)
 			return subtypeId
 		end
 	end
-	return picked
+	return Config.ResolveRace(picked, rng)
+end
+
+-- Raza "padre" para mostrar en el menú (Major Elf -> Elf, Invocado de Fuego -> Invocado)
+function Config.ParentRace(raceId)
+	local race = Config.Races[raceId]
+	return race.SubtypeOf or race.VariantOf
 end
 
 local function percentText(percent)
@@ -169,6 +293,8 @@ function Config.ChanceText(raceId)
 	local percent = Config.Rarities[race.Rarity].Weight / 10
 	if race.SubtypeOf then
 		percent = percent * race.SubtypeChance / 100
+	elseif race.VariantOf then
+		percent = percent / #Config.Races[race.VariantOf].Variants
 	else
 		-- quitar la parte que se convierte en subtipos
 		for _, other in Config.Races do
@@ -185,25 +311,71 @@ function Config.SubtypeChanceText(raceId)
 end
 
 --------------------------------------------------------------------------------
--- Combate
+-- Habilidades especiales (tecla E). Todas gastan maná.
 --------------------------------------------------------------------------------
 
-Config.Attack = {
-	Range = 8, -- studs delante del personaje (más la mitad de su tamaño)
-	Cooldown = 0.5, -- segundos entre ataques
-}
-
--- Ataques especiales de algunas razas (además del clic normal)
 Config.Abilities = {
 	AirSlash = {
 		DisplayName = "Air Manipulation",
 		Description = "Corte de viento que atraviesa a los enemigos",
+		Icon = "🌪️",
 		Key = "E",
+		Kind = "Line",
 		Cooldown = 1.5,
-		Range = 45, -- studs que recorre el corte
-		Width = 6, -- ancho del corte
-		DamageMult = 1.2, -- respecto al ataque normal (luego se suma el bonus mágico)
+		ManaCost = 15,
+		Range = 45,
+		Width = 6,
+		DamageMult = 1.2,
 		Magic = true,
+		Color = Color3.fromRGB(150, 245, 190),
+	},
+	Fireball = {
+		DisplayName = "Bola de Fuego",
+		Description = "Explota en área y quema a los enemigos",
+		Icon = "🔥",
+		Key = "E",
+		Kind = "Projectile",
+		Cooldown = 2,
+		ManaCost = 60,
+		Range = 60,
+		Speed = 90,
+		Radius = 10,
+		DamageMult = 1.8,
+		Magic = true,
+		Burn = { Duration = 3, TickDamageMult = 0.12 }, -- daño por tick (cada 0,5 s) respecto al golpe
+		Color = Color3.fromRGB(255, 120, 30),
+	},
+	WaterTorrent = {
+		DisplayName = "Torrente de Agua",
+		Description = "Chorro que empuja y ralentiza",
+		Icon = "🌊",
+		Key = "E",
+		Kind = "Line",
+		Cooldown = 2,
+		ManaCost = 50,
+		Range = 40,
+		Width = 8,
+		DamageMult = 1.5,
+		Magic = true,
+		Knockback = 55,
+		Slow = { Mult = 0.5, Duration = 3 },
+		Color = Color3.fromRGB(80, 170, 255),
+	},
+	PlantRoots = {
+		DisplayName = "Raíces Atrapadoras",
+		Description = "Inmoviliza en área y te cura",
+		Icon = "🌿",
+		Key = "E",
+		Kind = "Area",
+		Cooldown = 2.5,
+		ManaCost = 55,
+		Distance = 16, -- el centro del área está delante de ti
+		Radius = 12,
+		DamageMult = 1.4,
+		Magic = true,
+		RootDuration = 2.5,
+		Lifesteal = 0.3, -- te cura el 30% del daño hecho
+		Color = Color3.fromRGB(90, 200, 70),
 	},
 }
 
@@ -257,19 +429,25 @@ Config.Skills = {
 	},
 }
 
--- Gold = oro base por derrotarlo (+1 para todas las razas).
--- Se multiplica por el GoldMult de la raza: el Major Elf gana x3 (+3).
+--------------------------------------------------------------------------------
+-- Monstruos
+--------------------------------------------------------------------------------
+
+-- Valores a nivel 1. Cada nivel los hace más fuertes (ver Config.MonsterStats).
+-- Gold = oro base por derrotarlo (+1); el Major Elf gana x3.
 Config.Monsters = {
 	Bat = {
 		DisplayName = "Murciélago de cueva",
 		Health = 25,
 		Damage = 5,
-		Magic = true, -- su chillido es daño mágico (el Major Elf lo resiste)
+		Magic = true, -- su chillido es daño mágico (lo reducen las resistencias mágicas)
 		XP = 15,
 		Gold = 1,
 		Skill = "HighJump",
-		Color = Color3.fromRGB(70, 55, 95),
-		Size = Vector3.new(2.5, 2, 2.5),
+		Color = Color3.fromRGB(80, 60, 110),
+		EyeColor = Color3.fromRGB(255, 60, 90),
+		Size = Vector3.new(1.8, 1.6, 1.8), -- cuerpo
+		HipHeight = 3.2, -- vuela
 		AggroRange = 35,
 	},
 	Wolf = {
@@ -280,7 +458,9 @@ Config.Monsters = {
 		Gold = 1,
 		Skill = "Dash",
 		Color = Color3.fromRGB(125, 115, 105),
-		Size = Vector3.new(3, 3, 5),
+		EyeColor = Color3.fromRGB(255, 210, 60),
+		Size = Vector3.new(2.4, 2.2, 4.4),
+		HipHeight = 1.4,
 		AggroRange = 40,
 	},
 	Golem = {
@@ -291,7 +471,9 @@ Config.Monsters = {
 		Gold = 1,
 		Skill = "StoneSkin",
 		Color = Color3.fromRGB(135, 130, 120),
-		Size = Vector3.new(6, 7, 5),
+		EyeColor = Color3.fromRGB(255, 150, 40),
+		Size = Vector3.new(4.4, 4.4, 3.4),
+		HipHeight = 2.6,
 		AggroRange = 30,
 	},
 }
@@ -300,24 +482,45 @@ Config.Monsters = {
 Config.Zones = {
 	{
 		Name = "Pradera Susurrante",
-		Label = "Pradera Susurrante\nNivel 1+",
+		Label = "Pradera Susurrante\nNivel 1-4",
 		Center = Vector3.new(0, 0, -140),
 		Radius = 70,
+		Levels = { 1, 4 },
 		Monsters = { "Bat", "Bat", "Wolf" },
 		MaxMonsters = 10,
 	},
 	{
 		Name = "Colinas de Piedra",
-		Label = "Colinas de Piedra\nNivel 5+",
+		Label = "Colinas de Piedra\nNivel 5-9",
 		Center = Vector3.new(0, 0, -340),
 		Radius = 80,
+		Levels = { 5, 9 },
 		Monsters = { "Wolf", "Golem", "Golem" },
 		MaxMonsters = 6,
 	},
 }
 
+-- Estadísticas de un monstruo según su nivel
+function Config.MonsterStats(monsterId, level)
+	local def = Config.Monsters[monsterId]
+	local steps = level - 1
+	return {
+		Health = math.floor(def.Health * (1 + 0.3 * steps)),
+		Damage = math.floor(def.Damage * (1 + 0.15 * steps) + 0.5),
+		XP = math.floor(def.XP * (1 + 0.25 * steps)),
+		Scale = 1 + 0.04 * steps, -- un poco más grandes
+	}
+end
+
+-- Probabilidad (0-1) de que un Slime absorba a un monstruo.
+-- Empieza en ~42% a nivel 1 y llega al 100% cuando superas bastante al monstruo.
+function Config.AbsorbChance(playerLevel, monsterLevel)
+	local chance = 0.4 + (playerLevel - monsterLevel) * 0.1 + playerLevel * 0.02
+	return math.clamp(chance, 0.05, 1)
+end
+
 --------------------------------------------------------------------------------
--- Fórmulas
+-- Fórmulas de jugador
 --------------------------------------------------------------------------------
 
 function Config.GetForm(level)
@@ -352,6 +555,10 @@ function Config.MaxHealth(level, raceId, skills)
 	return math.floor(health)
 end
 
+function Config.MaxMana(level, raceId)
+	return math.floor(Config.Races[raceId].MaxMana * (1 + 0.05 * (level - 1)))
+end
+
 function Config.AttackDamage(level, raceId)
 	local race = Config.Races[raceId]
 	local base = 10 + (level - 1) * 4 + Config.GetBody(raceId, level).DamageBonus
@@ -377,7 +584,7 @@ function Config.WalkSpeed(raceId)
 	return Config.BaseSpeed * Config.Races[raceId].SpeedMult
 end
 
--- Oro por derrotar un monstruo: +1 normal; el Major Elf gana x3 (+3 en monstruos de bajo nivel)
+-- Oro por derrotar un monstruo: +1 normal; el Major Elf gana x3 (+3)
 function Config.GoldForKill(raceId, monsterId)
 	return Config.Monsters[monsterId].Gold * Config.Races[raceId].GoldMult
 end

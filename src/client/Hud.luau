@@ -89,7 +89,7 @@ end
 
 local card, cardStroke = panel(gui, {
 	Position = UDim2.fromOffset(16, 16),
-	Size = UDim2.fromOffset(300, 120),
+	Size = UDim2.fromOffset(300, 140),
 })
 
 local rarityPill = create("Frame", {
@@ -139,8 +139,72 @@ local nameLabel = UI.label(card, {
 
 local hpFill, hpText =
 	bar(card, UDim2.fromOffset(12, 68), 20, Color3.fromRGB(110, 230, 120), Color3.fromRGB(40, 160, 70))
+local manaFill, manaText =
+	bar(card, UDim2.fromOffset(12, 92), 16, Color3.fromRGB(120, 140, 255), Color3.fromRGB(70, 60, 220))
 local xpFill, xpText =
-	bar(card, UDim2.fromOffset(12, 94), 16, Color3.fromRGB(130, 200, 255), Color3.fromRGB(60, 120, 230))
+	bar(card, UDim2.fromOffset(12, 112), 14, Color3.fromRGB(255, 220, 110), Color3.fromRGB(220, 160, 40))
+
+-- Estados (debajo de la tarjeta): Berserker, Sobrecarga, Regenerando
+local statusRow = create("Frame", {
+	Position = UDim2.fromOffset(16, 162),
+	Size = UDim2.fromOffset(300, 24),
+	BackgroundTransparency = 1,
+}, gui)
+create("UIListLayout", {
+	FillDirection = Enum.FillDirection.Horizontal,
+	Padding = UDim.new(0, 6),
+	SortOrder = Enum.SortOrder.LayoutOrder,
+}, statusRow)
+
+local function statusChip(order, text, color)
+	local chip = create("Frame", {
+		Size = UDim2.fromOffset(0, 24),
+		AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundColor3 = color:Lerp(Color3.new(), 0.55),
+		LayoutOrder = order,
+		Visible = false,
+	}, statusRow)
+	UI.round(chip, 12)
+	create("UIStroke", { Color = color, Thickness = 1.5 }, chip)
+	create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }, chip)
+	UI.label(chip, {
+		Size = UDim2.fromScale(0, 1),
+		AutomaticSize = Enum.AutomaticSize.X,
+		Font = Enum.Font.GothamBlack,
+		TextSize = 12,
+		TextColor3 = color:Lerp(Colors.White, 0.4),
+		TextWrapped = false,
+		Text = text,
+	})
+	return chip
+end
+
+local berserkChip = statusChip(1, "💢 BERSERKER", Color3.fromRGB(255, 60, 50))
+local overloadChip = statusChip(2, "⚡ SOBRECARGA", Color3.fromRGB(255, 150, 50))
+local regenChip = statusChip(3, "✚ Regenerando", Color3.fromRGB(90, 220, 120))
+
+-- Barra de "calor" de la Sobrecarga de Energía (solo Invocados)
+local heatBar = create("Frame", {
+	Position = UDim2.fromOffset(16, 192),
+	Size = UDim2.fromOffset(300, 8),
+	BackgroundColor3 = Color3.fromRGB(12, 13, 22),
+	Visible = false,
+}, gui)
+UI.round(heatBar, 4)
+local heatFill = create("Frame", {
+	Size = UDim2.fromScale(0, 1),
+	BackgroundColor3 = Color3.fromRGB(255, 150, 50),
+}, heatBar)
+UI.round(heatFill, 4)
+UI.label(heatBar, {
+	Position = UDim2.fromOffset(0, 9),
+	Size = UDim2.new(1, 0, 0, 14),
+	Font = Enum.Font.GothamBold,
+	TextSize = 11,
+	TextColor3 = Colors.Muted,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	Text = "Energía acumulada (no abuses de las habilidades)",
+})
 
 --------------------------------------------------------------------------------
 -- Panel de rasgos / habilidades (arriba a la derecha)
@@ -273,11 +337,28 @@ local function makeAction(id, order, icon, name, key, color, cooldown, use)
 		Text = "",
 	})
 
+	-- Coste de maná (solo habilidades que gastan maná)
+	local costLabel = UI.label(button, {
+		Position = UDim2.fromOffset(5, 5),
+		Size = UDim2.fromOffset(40, 16),
+		Font = Enum.Font.GothamBlack,
+		TextSize = 11,
+		TextColor3 = Color3.fromRGB(160, 175, 255),
+		TextStrokeTransparency = 0.3,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 2,
+		Visible = false,
+		Text = "",
+	})
+
 	local action = {
 		Button = button,
 		Scale = scale,
 		Overlay = overlay,
 		CooldownText = cooldownText,
+		CostLabel = costLabel,
+		ManaCost = 0,
+		Key = key,
 		Cooldown = cooldown,
 		ReadyAt = 0,
 		Use = use,
@@ -293,6 +374,10 @@ local function trigger(action)
 	end
 	local now = os.clock()
 	if now < action.ReadyAt then
+		return
+	end
+	if action.ManaCost > (player:GetAttribute("Mana") or 0) then
+		action.Use() -- el servidor avisa de que no hay maná suficiente
 		return
 	end
 	action.ReadyAt = now + action.Cooldown
@@ -487,23 +572,36 @@ local function dash()
 	end)
 end
 
-local airSlash = Config.Abilities.AirSlash
-
 makeAction("Attack", 1, "⚔️", "Atacar", "Clic", Color3.fromRGB(220, 75, 75), Config.Attack.Cooldown, function()
 	attackRemote:FireServer()
 end)
-makeAction(
-	"AirSlash",
-	2,
-	"🌪️",
-	airSlash.DisplayName,
-	airSlash.Key,
-	Color3.fromRGB(60, 190, 110),
-	airSlash.Cooldown,
-	function()
-		castRemote:FireServer("AirSlash")
-	end
-)
+
+-- Un botón por cada habilidad especial (solo se ve el de tu raza)
+local abilityIds = {}
+for abilityId in Config.Abilities do
+	table.insert(abilityIds, abilityId)
+end
+table.sort(abilityIds)
+for _, abilityId in abilityIds do
+	local ability = Config.Abilities[abilityId]
+	local action = makeAction(
+		abilityId,
+		2,
+		ability.Icon,
+		ability.DisplayName,
+		ability.Key,
+		ability.Color:Lerp(Color3.new(), 0.25),
+		ability.Cooldown,
+		function()
+			castRemote:FireServer(abilityId)
+		end
+	)
+	action.ManaCost = ability.ManaCost
+	action.CostLabel.Text = ability.ManaCost .. " MP"
+	action.CostLabel.Visible = true
+	action.Button.Visible = false
+end
+
 makeAction("Absorb", 3, "🌀", "Absorber", "F", Color3.fromRGB(70, 140, 235), 0.3, function()
 	absorbRemote:FireServer()
 end)
@@ -515,10 +613,10 @@ for _, action in orderedActions do
 	end)
 end
 
-local keyToAction = {
-	[Enum.KeyCode.E] = "AirSlash",
-	[Enum.KeyCode.F] = "Absorb",
-	[Enum.KeyCode.Q] = "Dash",
+local keyNames = {
+	[Enum.KeyCode.E] = "E",
+	[Enum.KeyCode.F] = "F",
+	[Enum.KeyCode.Q] = "Q",
 }
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -527,10 +625,53 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		trigger(actions.Attack)
-	elseif keyToAction[input.KeyCode] then
-		trigger(actions[keyToAction[input.KeyCode]])
+		return
+	end
+	-- Usar el botón visible que tenga esa tecla
+	local key = keyNames[input.KeyCode]
+	if key then
+		for _, action in orderedActions do
+			if action.Key == key and action.Button.Visible then
+				trigger(action)
+				break
+			end
+		end
 	end
 end)
+
+-- Maná, calor y estados: cambian muy seguido, así que van aparte del refresh general
+local FAST_ATTRIBUTES = {
+	Mana = true,
+	MaxMana = true,
+	Heat = true,
+	Overloaded = true,
+	Berserk = true,
+	InCombat = true,
+}
+
+local function refreshFast()
+	local mana = player:GetAttribute("Mana") or 0
+	local maxMana = math.max(player:GetAttribute("MaxMana") or 1, 1)
+	manaFill.Size = UDim2.fromScale(math.clamp(mana / maxMana, 0, 1), 1)
+	manaText.Text = tostring(mana) .. " / " .. tostring(maxMana) .. " MP"
+
+	local race = Config.Races[player:GetAttribute("Race") or Config.DefaultRace] or Config.Races[Config.DefaultRace]
+	berserkChip.Visible = player:GetAttribute("Berserk") == true
+	overloadChip.Visible = player:GetAttribute("Overloaded") == true
+	regenChip.Visible = race.HealthRegen > 0 and player:GetAttribute("InCombat") == false
+
+	heatBar.Visible = race.Overload == true
+	heatFill.Size = UDim2.fromScale(math.clamp(player:GetAttribute("Heat") or 0, 0, 1), 1)
+
+	-- Habilidades sin maná suficiente: coste en rojo
+	for _, action in orderedActions do
+		if action.ManaCost > 0 then
+			action.CostLabel.TextColor3 = if mana >= action.ManaCost
+				then Color3.fromRGB(160, 175, 255)
+				else Color3.fromRGB(255, 90, 90)
+		end
+	end
+end
 
 -- Recargas
 RunService.RenderStepped:Connect(function()
@@ -596,7 +737,9 @@ local function refresh()
 	infoLabel.Text = table.concat(lines, "\n")
 
 	-- Botones disponibles
-	actions.AirSlash.Button.Visible = Config.HasAbility(raceId, "AirSlash")
+	for abilityId in Config.Abilities do
+		actions[abilityId].Button.Visible = Config.HasAbility(raceId, abilityId)
+	end
 	actions.Absorb.Button.Visible = race.CanAbsorb
 	actions.Dash.Button.Visible = race.CanAbsorb and skills.Dash == true
 
@@ -609,7 +752,13 @@ local function refresh()
 	lastGold = gold
 end
 
-player.AttributeChanged:Connect(refresh)
+player.AttributeChanged:Connect(function(name)
+	if FAST_ATTRIBUTES[name] then
+		refreshFast()
+	else
+		refresh()
+	end
+end)
 
 --------------------------------------------------------------------------------
 -- Mensajes: se muestran uno tras otro para que no se pierda ninguno
@@ -685,6 +834,7 @@ end
 function Hud.Show()
 	lastGold = nil
 	refresh()
+	refreshFast()
 	gui.Enabled = true
 end
 

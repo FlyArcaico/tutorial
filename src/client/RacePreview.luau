@@ -140,43 +140,73 @@ function builders.Ogre(model)
 		Pants = Color3.fromRGB(70, 50, 35),
 		Hair = Color3.fromRGB(40, 30, 30),
 	})
+	-- Cuernos pequeños y negros
 	for _, side in { -1, 1 } do
 		part(
 			model,
-			Vector3.new(0.9, 0.3, 0.3) * s,
-			at(side * 0.35, 3.1, 0) * CFrame.Angles(0, 0, math.rad(90 - side * 25)),
-			Color3.fromRGB(240, 230, 200),
+			Vector3.new(0.5, 0.2, 0.2) * s,
+			at(side * 0.32, 2.85, -0.1) * CFrame.Angles(0, 0, math.rad(90 - side * 20)),
+			Color3.fromRGB(25, 22, 25),
+			{ Shape = Enum.PartType.Cylinder }
+		)
+		part(
+			model,
+			Vector3.new(0.22, 0.12, 0.12) * s,
+			at(side * 0.4, 3.1, -0.1) * CFrame.Angles(0, 0, math.rad(90 - side * 35)),
+			Color3.fromRGB(10, 10, 12),
 			{ Shape = Enum.PartType.Cylinder }
 		)
 	end
 	part(model, Vector3.new(2.05, 0.3, 1.05) * s, at(0, -0.35, 0), Color3.fromRGB(40, 30, 25))
 end
 
-function builders.Summoned(model)
-	local at, s = figure(model, {
-		Skin = Color3.fromRGB(234, 184, 146),
-		Shirt = Color3.fromRGB(130, 30, 35),
-		Pants = Color3.fromRGB(35, 30, 35),
-		Hair = Color3.fromRGB(25, 25, 30),
-	})
-	-- Llamas en las manos (los ViewportFrame no muestran Fire, así que usamos neón)
-	for _, side in { -1, 1 } do
+-- Invocados: capa del color de su elemento y magia en las manos (neón, porque los
+-- ViewportFrame no muestran fuego ni partículas)
+local function summonedBuilder(raceId)
+	return function(model)
+		local race = Config.Races[raceId]
+		local gold = Color3.fromRGB(255, 200, 70)
+		local at, s = figure(model, {
+			Skin = Color3.fromRGB(234, 184, 146),
+			Shirt = race.CapeColor:Lerp(Color3.new(), 0.35),
+			Pants = Color3.fromRGB(35, 30, 35),
+			Hair = Color3.fromRGB(25, 25, 30),
+		})
+		local fabric = { Material = Enum.Material.Fabric }
 		part(
 			model,
-			Vector3.one * 0.9 * s,
-			at(side * 1.5, -0.8, -0.2),
-			Color3.fromRGB(255, 130, 30),
-			{ Shape = Enum.PartType.Ball, Material = Enum.Material.Neon }
+			Vector3.new(2.1, 3, 0.15) * s,
+			at(0, 0.1, 0.62) * CFrame.Angles(math.rad(8), 0, 0),
+			race.CapeColor,
+			fabric
 		)
-		part(
-			model,
-			Vector3.one * 0.5 * s,
-			at(side * 1.5, -0.3, -0.2),
-			Color3.fromRGB(255, 220, 80),
-			{ Shape = Enum.PartType.Ball, Material = Enum.Material.Neon }
-		)
+		part(model, Vector3.new(2.2, 0.35, 1.2) * s, at(0, 1.45, 0.05), race.CapeColor:Lerp(Color3.new(), 0.25), fabric)
+		part(model, Vector3.new(0.35, 0.35, 0.1) * s, at(0, 1.35, -0.55), gold, { Material = Enum.Material.Neon })
+		part(model, Vector3.new(2.05, 0.25, 1.05) * s, at(0, -0.4, 0), gold)
+
+		for _, side in { -1, 1 } do
+			part(
+				model,
+				Vector3.one * 0.9 * s,
+				at(side * 1.5, -0.8, -0.2),
+				race.Color,
+				{ Shape = Enum.PartType.Ball, Material = Enum.Material.Neon, Transparency = 0.15 }
+			)
+			part(
+				model,
+				Vector3.one * 0.5 * s,
+				at(side * 1.5, -0.25, -0.2),
+				race.Color:Lerp(Color3.new(1, 1, 1), 0.5),
+				{ Shape = Enum.PartType.Ball, Material = Enum.Material.Neon }
+			)
+		end
 	end
 end
+
+builders.SummonedFire = summonedBuilder("SummonedFire")
+builders.SummonedWater = summonedBuilder("SummonedWater")
+builders.SummonedPlant = summonedBuilder("SummonedPlant")
+builders.Summoned = builders.SummonedFire
 
 function builders.Slime(model)
 	local d = 4
@@ -212,6 +242,6 @@ function RacePreview.Build(raceId)
 end
 
 -- Cámara que encuadra hasta el más grande (Ogre)
-RacePreview.CameraCFrame = CFrame.lookAt(Vector3.new(0, 2.6, -15), Vector3.new(0, 1.9, 0))
+RacePreview.CameraCFrame = CFrame.lookAt(Vector3.new(0, 3.4, -18.5), Vector3.new(0, 2.7, 0))
 
 return RacePreview

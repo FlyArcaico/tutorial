@@ -248,13 +248,13 @@ local raceRows = {} -- [raceId] = { Frame, Stroke, Button }
 for index, raceId in Config.DisplayOrder do
 	local race = Config.Races[raceId]
 	local rarity = Config.Rarities[race.Rarity]
-	local isSubtype = race.SubtypeOf ~= nil
+	local isSubtype = Config.ParentRace(raceId) ~= nil
 
-	-- Los subtipos van metidos hacia la derecha, debajo de su raza
+	-- Los subtipos y tipos van metidos hacia la derecha, debajo de su raza
 	local row = create("Frame", {
 		Size = UDim2.new(1, -10, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundColor3 = if isSubtype then Color3.fromRGB(38, 58, 52) else Colors.PanelLight,
+		BackgroundColor3 = if isSubtype then rarity.Color:Lerp(Colors.Panel, 0.82) else Colors.PanelLight,
 		LayoutOrder = 10 + index,
 	}, infoScroll)
 	UI.round(row, 8)
@@ -265,7 +265,16 @@ for index, raceId in Config.DisplayOrder do
 	local stroke = create("UIStroke", { Thickness = 2, Color = rarity.Color, Enabled = false }, row)
 
 	local header
-	if isSubtype then
+	if race.VariantOf then
+		header = string.format(
+			'<font color="#%s"><b>↳ TIPO de %s</b></font>   <b>%s</b>  <font color="#%s">(%s total)</font>',
+			rarity.Color:ToHex(),
+			Config.Races[race.VariantOf].Name,
+			race.Name,
+			Colors.Muted:ToHex(),
+			Config.ChanceText(raceId)
+		)
+	elseif isSubtype then
 		header = string.format(
 			'<font color="#%s"><b>↳ SUBTIPO de %s · %s de los %s</b></font>   <b>%s</b>  <font color="#%s">(%s total)</font>',
 			rarity.Color:ToHex(),
@@ -380,6 +389,8 @@ local function showRace(raceId)
 	raceNameLabel.TextColor3 = rarity.Color
 	if race.SubtypeOf then
 		rarityLabel.Text = rarity.Name .. "  ·  Subtipo de " .. Config.Races[race.SubtypeOf].Name
+	elseif race.VariantOf then
+		rarityLabel.Text = rarity.Name .. "  ·  Tipo de " .. Config.Races[race.VariantOf].Name
 	else
 		rarityLabel.Text = rarity.Name .. "  ·  " .. Config.ChanceText(raceId)
 	end
@@ -485,6 +496,7 @@ local function buildSlotCard(summary)
 		TextColor3 = rarity.Color,
 		Text = if race.SubtypeOf
 			then rarity.Name .. " · Subtipo de " .. Config.Races[race.SubtypeOf].Name
+			elseif race.VariantOf then rarity.Name .. " · Tipo de " .. Config.Races[race.VariantOf].Name
 			else rarity.Name,
 	})
 	UI.label(card, {
