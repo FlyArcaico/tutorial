@@ -220,17 +220,24 @@ function builders.Slime(model)
 		mesh.Parent = p
 	end
 
-	-- Bola azul con reborde azul clarito
-	sphere(Vector3.new(d, height, d), base, Color3.fromRGB(90, 170, 255), 0.05)
-	sphere(Vector3.new(d, height, d) * 1.08, base, Color3.fromRGB(175, 230, 255), 0.6)
-	-- Ojos achinados: dos rayas
+	-- Interior azul intenso con un contorno azul clarito por detrás (no tapa la cara)
+	sphere(Vector3.new(d, height, d), base, Color3.fromRGB(45, 125, 250), 0.03)
+	sphere(Vector3.new(d, height, d) * 1.08, base * CFrame.new(0, 0, d * 0.09), Color3.fromRGB(175, 230, 255), 0.35)
+
+	-- Ojos de "dormido": dos curvas ◡ por fuera del cuerpo
+	local rx, ry = d / 2, height / 2
 	for _, side in { -1, 1 } do
-		part(
-			model,
-			Vector3.new(d * 0.17, d * 0.035, d * 0.04),
-			base * CFrame.new(side * d * 0.18, height * 0.15, -d * 0.445) * CFrame.Angles(0, side * 0.38, side * 0.12),
-			Color3.fromRGB(25, 35, 60)
-		)
+		local ex, ey = side * d * 0.17, height * 0.1
+		for _, piece in { { 0, -d * 0.012, 0 }, { -d * 0.06, 0, -0.45 }, { d * 0.06, 0, 0.45 } } do
+			local x, y = ex + piece[1], ey + piece[2]
+			local z = -rx * math.sqrt(math.max(1 - (x / rx) ^ 2 - (y / ry) ^ 2, 0)) - d * 0.015
+			part(
+				model,
+				Vector3.new(d * 0.075, d * 0.032, d * 0.03),
+				base * CFrame.new(x, y, z) * CFrame.Angles(0, -x / rx * 0.9, piece[3]),
+				Color3.fromRGB(20, 30, 60)
+			)
+		end
 	end
 	sphere(Vector3.one * d * 0.13, base * CFrame.new(d * 0.22, height * 0.32, -d * 0.3), Color3.new(1, 1, 1), 0.25)
 end

@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage.Shared.Config)
+local Shops = require(script.Parent.Shops)
 
 local World = {}
 
@@ -315,6 +316,7 @@ function World.Build()
 
 	World.BuildSafeZone(world)
 	World.BuildQuestGiver(world)
+	Shops.Build(world)
 
 	-- Zone signs at the edge of each zone, facing the path
 	for _, zone in Config.Zones do

@@ -22,6 +22,8 @@ local function newSlot()
 		Absorbed = {}, -- [monsterId] = cantidad (solo Slime)
 		Inventory = {}, -- [itemId] = cantidad
 		StatPoints = {}, -- [statId] = puntos libres repartidos
+		Weapons = {}, -- [weaponId] = true (armas compradas)
+		-- Equipped = weaponId (arma equipada, o nil)
 	}
 end
 
@@ -184,6 +186,17 @@ local function updateAttributes(player, slot)
 	player:SetAttribute("Inventory", table.concat(items, ","))
 	player:SetAttribute("Spins", slot.Spins)
 
+	-- Armas
+	local weapons = {}
+	for _, weaponId in Config.WeaponOrder do
+		if slot.Weapons[weaponId] then
+			table.insert(weapons, weaponId)
+		end
+	end
+	player:SetAttribute("Weapons", table.concat(weapons, ","))
+	player:SetAttribute("Equipped", slot.Equipped or "")
+	player:SetAttribute("AttackCooldown", Config.AttackCooldown(slot.Equipped))
+
 	-- Misión activa (el HUD muestra el progreso arriba a la izquierda)
 	local quest = slot.Quest and Config.GetQuest(slot.Quest.Id)
 	player:SetAttribute("QuestId", if quest then quest.Id else "")
@@ -310,22 +323,41 @@ local function applySlimeBody(character, form)
 		return part
 	end
 
-	-- Cuerpo azul y un reborde azul clarito alrededor
-	sphere("Blob", Vector3.new(d, height, d), base, form.Color, 0.08)
-	local rim = sphere("Rim", Vector3.new(d, height, d) * 1.08, base, Color3.fromRGB(175, 230, 255), 0.6)
-	rim.Material = Enum.Material.Neon
-	rim.CastShadow = false
+	-- Interior azul intenso
+	local blob = sphere("Blob", Vector3.new(d, height, d), base, form.Color, 0.05)
 
-	-- Ojos achinados: dos rayas que suben y bajan con la respiración
+	-- Contorno azul clarito alrededor de la silueta (no tapa los ojos)
+	local outline = Instance.new("Highlight")
+	outline.Name = "SlimeOutline"
+	outline.Adornee = blob
+	outline.FillTransparency = 1
+	outline.OutlineColor = Color3.fromRGB(175, 230, 255)
+	outline.OutlineTransparency = 0
+	outline.DepthMode = Enum.HighlightDepthMode.Occluded
+	outline.Parent = body
+
+	-- Ojos de "dormido": cada ojo es una curva ◡ de 3 trocitos, pegada POR FUERA del cuerpo
+	local rx, ry = d / 2, height / 2
+	local function surfaceZ(x, y)
+		local inside = 1 - (x / rx) ^ 2 - (y / ry) ^ 2
+		return -rx * math.sqrt(math.max(inside, 0)) - d * 0.015
+	end
+	local eyeColor = Color3.fromRGB(20, 30, 60)
+	local segment = Vector3.new(d * 0.075, d * 0.032, d * 0.03)
 	for _, side in { -1, 1 } do
-		local eye = makeExtraPart(
-			"Eye",
-			Vector3.new(d * 0.17, d * 0.035, d * 0.04),
-			base * CFrame.new(side * d * 0.18, height * 0.15, -d * 0.445) * CFrame.Angles(0, side * 0.38, side * 0.12),
-			Color3.fromRGB(25, 35, 60)
-		)
-		eye:SetAttribute("SlimeEye", true)
-		attach(eye)
+		local ex, ey = side * d * 0.17, height * 0.1
+		-- { desplazamiento x, desplazamiento y, inclinación }: centro abajo, puntas arriba
+		for _, piece in { { 0, -d * 0.012, 0 }, { -d * 0.06, 0, -0.45 }, { d * 0.06, 0, 0.45 } } do
+			local x, y = ex + piece[1], ey + piece[2]
+			local eye = makeExtraPart(
+				"Eye",
+				segment,
+				base * CFrame.new(x, y, surfaceZ(x, y)) * CFrame.Angles(0, -x / rx * 0.9, piece[3]),
+				eyeColor
+			)
+			eye:SetAttribute("SlimeEye", true)
+			attach(eye)
+		end
 	end
 
 	sphere(
@@ -494,6 +526,119 @@ local function addSummonedLook(character, race)
 	end
 end
 
+-- Espada en la mano derecha. Cuanto mejor es el arma, más detalles tiene.
+local function attachWeapon(character, weaponId)
+	local old = character:FindFirstChild("EquippedWeapon")
+	if old then
+		old:Destroy()
+	end
+	local weapon = weaponId and Config.Weapons[weaponId]
+	local arm = character:FindFirstChild("Right Arm")
+	if not weapon or not arm then
+		return
+	end
+
+	local look = weapon.Look
+	local s = character:GetScale()
+	local model = Instance.new("Model")
+	model.Name = "EquippedWeapon"
+
+	-- La espada sale de la mano hacia delante, un poco inclinada hacia arriba
+	local hand = arm.CFrame * CFrame.new(0, -arm.Size.Y / 2 + 0.15 * s, 0) * CFrame.Angles(math.rad(10), 0, 0)
+	local function piece(name, size, offset, color, props)
+		local part = makeExtraPart(name, size * s, hand * CFrame.new(offset * s), color)
+		for key, value in props or {} do
+			part[key] = value
+		end
+		weld(part, arm)
+		part.Parent = model
+		return part
+	end
+
+	local length = look.Length
+	piece("Grip", Vector3.new(0.28, 0.28, 1), Vector3.new(0, 0, 0), look.Handle, { Material = Enum.Material.Fabric })
+	piece("Pommel", Vector3.one * 0.38, Vector3.new(0, 0, 0.62), look.Guard, { Shape = Enum.PartType.Ball })
+	piece(
+		"Guard",
+		Vector3.new(1.3, 0.22, 0.25),
+		Vector3.new(0, 0, -0.6),
+		look.Guard,
+		{ Material = Enum.Material.Metal }
+	)
+	local blade = piece(
+		"Blade",
+		Vector3.new(0.1, 0.42, length),
+		Vector3.new(0, 0, -0.72 - length / 2),
+		look.Blade,
+		{ Material = Enum.Material.Metal, Reflectance = 0.15 }
+	)
+	piece(
+		"Tip",
+		Vector3.new(0.1, 0.24, 0.4),
+		Vector3.new(0, 0, -0.92 - length),
+		look.Blade,
+		{ Material = Enum.Material.Metal }
+	)
+
+	-- Raro en adelante: gema en la guarda
+	if look.Gem then
+		piece("Gem", Vector3.one * 0.26, Vector3.new(0, 0, -0.6), look.Gem, {
+			Shape = Enum.PartType.Ball,
+			Material = Enum.Material.Neon,
+		})
+	end
+	-- Épico en adelante: guarda con "alas" y filo brillante
+	if look.Wings then
+		for _, side in { -1, 1 } do
+			piece(
+				"Wing",
+				Vector3.new(0.5, 0.15, 0.2),
+				Vector3.new(side * 0.78, 0, -0.5),
+				look.Guard,
+				{ Material = Enum.Material.Metal }
+			)
+		end
+	end
+	if look.Glow then
+		piece(
+			"Edge",
+			Vector3.new(0.12, 0.08, length * 0.9),
+			Vector3.new(0, 0.18, -0.72 - length / 2),
+			look.Gem or look.Blade,
+			{
+				Material = Enum.Material.Neon,
+			}
+		)
+		local light = Instance.new("PointLight")
+		light.Color = look.Gem or look.Blade
+		light.Range = 8
+		light.Brightness = 1.5
+		light.Parent = blade
+	end
+	-- Legendario: hoja en llamas. Mítico: destellos.
+	if look.Fire then
+		local fire = Instance.new("Fire")
+		fire.Size = 2.5
+		fire.Heat = 3
+		fire.Color = Color3.fromRGB(255, 120, 30)
+		fire.SecondaryColor = Color3.fromRGB(255, 220, 80)
+		fire.Parent = blade
+	end
+	if look.Sparkles then
+		local sparkles = Instance.new("ParticleEmitter")
+		sparkles.Color = ColorSequence.new(look.Gem, look.Blade)
+		sparkles.LightEmission = 1
+		sparkles.Size = NumberSequence.new(0.25, 0)
+		sparkles.Rate = 20
+		sparkles.Lifetime = NumberRange.new(0.4, 0.8)
+		sparkles.Speed = NumberRange.new(0.5, 1.5)
+		sparkles.SpreadAngle = Vector2.new(180, 180)
+		sparkles.Parent = blade
+	end
+
+	model.Parent = character
+end
+
 local function waitForAppearance(player)
 	local deadline = os.clock() + 5
 	while not player:HasAppearanceLoaded() and player.Parent and os.clock() < deadline do
@@ -554,6 +699,9 @@ local function onCharacterAdded(player, character)
 		end
 		if race.Element then
 			addSummonedLook(character, race)
+		end
+		if slot.Equipped then
+			attachWeapon(character, slot.Equipped)
 		end
 	end
 
@@ -935,11 +1083,21 @@ end
 -- Tienda, inventario y ajustes
 --------------------------------------------------------------------------------
 
+local function isNearShop(player, shopId)
+	local shop = Config.Shops[shopId]
+	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	return shop ~= nil and root ~= nil and (root.Position - shop.Position).Magnitude <= Config.ShopTalkDistance + 6
+end
+
+-- Comprar en la tienda de Medicina (hay que estar cerca del NPC)
 function PlayerData.Buy(player, itemId, amount)
 	local slot = PlayerData.Get(player)
 	local item = type(itemId) == "string" and Config.Items[itemId]
-	if not slot or not item then
+	if not slot or not item or not table.find(Config.Shops.Medicine.Items, itemId) then
 		return fail("Objeto no válido")
+	end
+	if not isNearShop(player, "Medicine") then
+		return fail("Acércate a la tienda de Medicina")
 	end
 	amount = if amount == 5 then 5 else 1
 	local owned = slot.Inventory[itemId] or 0
@@ -959,6 +1117,61 @@ function PlayerData.Buy(player, itemId, amount)
 		"Compraste " .. amount .. "× " .. item.Name .. "  -" .. cost .. " oro",
 		Color3.fromRGB(255, 215, 90)
 	)
+	return { Ok = true }
+end
+
+-- Comprar un arma en la Herrería (se equipa al momento)
+function PlayerData.BuyWeapon(player, weaponId)
+	local slot = PlayerData.Get(player)
+	local weapon = type(weaponId) == "string" and Config.Weapons[weaponId]
+	if not slot or not weapon then
+		return fail("Arma no válida")
+	end
+	if not isNearShop(player, "Blacksmith") then
+		return fail("Acércate a la Herrería")
+	end
+	if Config.Races[slot.Race].CanAbsorb then
+		return fail("El Slime aún no tiene forma humana para usar espadas")
+	end
+	if slot.Weapons[weaponId] then
+		return fail("Ya tienes esta arma")
+	end
+	if slot.Gold < weapon.Price then
+		return fail("No tienes suficiente oro (" .. weapon.Price .. ")")
+	end
+
+	slot.Gold -= weapon.Price
+	slot.Weapons[weaponId] = true
+	slot.Equipped = weaponId
+	if player.Character then
+		attachWeapon(player.Character, weaponId)
+	end
+	updateAttributes(player, slot)
+	notify(player, "¡Compraste y equipaste " .. weapon.Name .. "!", Config.Rarities[weapon.Rarity].Color)
+	return { Ok = true }
+end
+
+-- Equipar un arma que ya tienes ("" para quitártela)
+function PlayerData.Equip(player, weaponId)
+	local slot = PlayerData.Get(player)
+	if not slot then
+		return fail("Entra al juego primero")
+	end
+	if weaponId == "" then
+		slot.Equipped = nil
+	else
+		if type(weaponId) ~= "string" or not slot.Weapons[weaponId] then
+			return fail("No tienes esa arma")
+		end
+		if Config.Races[slot.Race].CanAbsorb then
+			return fail("El Slime aún no tiene forma humana para usar espadas")
+		end
+		slot.Equipped = weaponId
+	end
+	if player.Character then
+		attachWeapon(player.Character, slot.Equipped)
+	end
+	updateAttributes(player, slot)
 	return { Ok = true }
 end
 

@@ -51,6 +51,14 @@ Remotes.Buy.OnServerInvoke = function(player, itemId, amount)
 	return PlayerData.Buy(player, itemId, amount)
 end
 
+Remotes.BuyWeapon.OnServerInvoke = function(player, weaponId)
+	return PlayerData.BuyWeapon(player, weaponId)
+end
+
+Remotes.Equip.OnServerInvoke = function(player, weaponId)
+	return PlayerData.Equip(player, weaponId)
+end
+
 Remotes.AllocateStat.OnServerInvoke = function(player, statId)
 	return PlayerData.AllocateStat(player, statId)
 end

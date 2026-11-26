@@ -444,7 +444,7 @@ Config.Forms = {
 		Name = "Slime pequeño",
 		MinLevel = 1,
 		Size = 3,
-		Color = Color3.fromRGB(90, 170, 255),
+		Color = Color3.fromRGB(45, 125, 250), -- interior azul intenso (el contorno es azul clarito)
 		DamageBonus = 0,
 	},
 	{
@@ -792,9 +792,11 @@ function Config.MaxStamina(stats, raceId)
 end
 
 -- Fuerza 5 = 10 de daño; cada punto +2
-function Config.AttackDamage(stats, raceId, level, skills)
+function Config.AttackDamage(stats, raceId, level, skills, weaponId)
 	local race = Config.Races[raceId]
-	local damage = (stats.Strength * 2 + Config.GetBody(raceId, level).DamageBonus) * race.DamageMult
+	local weapon = weaponId and not race.CanAbsorb and Config.Weapons[weaponId]
+	local weaponDamage = if weapon then weapon.Damage else 0
+	local damage = (stats.Strength * 2 + Config.GetBody(raceId, level).DamageBonus + weaponDamage) * race.DamageMult
 	if race.CanAbsorb and skills and skills.WolfFang then
 		damage *= 1 + Config.Skills.WolfFang.DamageBonus
 	end
@@ -960,19 +962,28 @@ end
 -- Effect: Heal / Mana / Stamina (fracción del máximo) o Spin (+1 spin al slot)
 Config.Items = {
 	HealthPotion = {
-		Name = "Poción de vida",
+		Name = "Poción",
 		Icon = "❤️",
-		Description = "Recupera el 40% de tu vida.",
-		Price = 15,
+		Description = "Recupera el 30% de tu vida.",
+		Price = 20,
 		Effect = "Heal",
-		Amount = 0.4,
+		Amount = 0.3,
 		Color = Color3.fromRGB(230, 70, 80),
+	},
+	FullPotion = {
+		Name = "Poción completa",
+		Icon = "💖",
+		Description = "Recupera TODA tu vida.",
+		Price = 100,
+		Effect = "Heal",
+		Amount = 1,
+		Color = Color3.fromRGB(255, 110, 180),
 	},
 	ManaPotion = {
 		Name = "Poción de maná",
 		Icon = "💧",
 		Description = "Recupera el 50% de tu maná.",
-		Price = 20,
+		Price = 25,
 		Effect = "Mana",
 		Amount = 0.5,
 		Color = Color3.fromRGB(90, 120, 255),
@@ -981,7 +992,7 @@ Config.Items = {
 		Name = "Poción de stamina",
 		Icon = "⚡",
 		Description = "Recupera toda tu stamina.",
-		Price = 10,
+		Price = 15,
 		Effect = "Stamina",
 		Amount = 1,
 		Color = Color3.fromRGB(230, 200, 60),
@@ -998,8 +1009,8 @@ Config.Items = {
 }
 
 Config.Items.StatReset = {
-	Name = "Pergamino del olvido",
-	Icon = "📜",
+	Name = "Elixir del olvido",
+	Icon = "🧪",
 	Description = "Devuelve todos tus puntos de atributo para repartirlos de nuevo.",
 	Price = 300,
 	Effect = "StatReset",
@@ -1007,9 +1018,177 @@ Config.Items.StatReset = {
 	Color = Color3.fromRGB(240, 220, 160),
 }
 
-Config.ItemOrder = { "HealthPotion", "ManaPotion", "StaminaPotion", "SpinToken", "StatReset" }
+Config.ItemOrder = { "HealthPotion", "FullPotion", "ManaPotion", "StaminaPotion", "StatReset", "SpinToken" }
 Config.PotionCooldown = 3 -- segundos entre pociones
 Config.MaxItemStack = 99
+
+--------------------------------------------------------------------------------
+-- Armas (Herrería). El Slime todavía no puede usarlas: no tiene forma humana.
+--------------------------------------------------------------------------------
+
+-- Damage = daño extra por golpe. AttackSpeed = golpes más rápidos (0,2 = +20%).
+-- Look = diseño de la espada (cuanto más cara, más detalles).
+Config.Weapons = {
+	IronSword = {
+		Name = "Espada de hierro",
+		Rarity = "Common",
+		Price = 80,
+		Damage = 4,
+		AttackSpeed = 0,
+		Description = "Sencilla pero fiable.",
+		Look = {
+			Blade = Color3.fromRGB(185, 190, 195),
+			Guard = Color3.fromRGB(110, 90, 70),
+			Handle = Color3.fromRGB(80, 55, 35),
+			Length = 3.2,
+		},
+	},
+	SteelSword = {
+		Name = "Espada de acero",
+		Rarity = "Rare",
+		Price = 250,
+		Damage = 8,
+		AttackSpeed = 0.1,
+		Description = "Acero templado: más daño y golpes más rápidos.",
+		Look = {
+			Blade = Color3.fromRGB(215, 225, 235),
+			Guard = Color3.fromRGB(70, 120, 200),
+			Handle = Color3.fromRGB(40, 40, 60),
+			Gem = Color3.fromRGB(80, 160, 255),
+			Length = 3.6,
+		},
+	},
+	WindBlade = {
+		Name = "Hoja del viento",
+		Rarity = "Epic",
+		Price = 700,
+		Damage = 14,
+		AttackSpeed = 0.2,
+		Passive = "DoubleHit",
+		PassiveText = "15% de probabilidad de dar un segundo golpe",
+		Description = "Forjada con piedras de viento. Muy ligera.",
+		Look = {
+			Blade = Color3.fromRGB(170, 255, 210),
+			Guard = Color3.fromRGB(60, 200, 140),
+			Handle = Color3.fromRGB(30, 70, 60),
+			Gem = Color3.fromRGB(120, 255, 190),
+			Length = 3.9,
+			Glow = true,
+			Wings = true,
+		},
+	},
+	FlameSword = {
+		Name = "Espada de llamas",
+		Rarity = "Legendary",
+		Price = 1800,
+		Damage = 22,
+		AttackSpeed = 0.15,
+		Passive = "Burn",
+		PassiveText = "Tus golpes queman durante 3 s",
+		Description = "Su hoja arde sin consumirse nunca.",
+		Look = {
+			Blade = Color3.fromRGB(255, 120, 40),
+			Guard = Color3.fromRGB(60, 30, 30),
+			Handle = Color3.fromRGB(40, 20, 20),
+			Gem = Color3.fromRGB(255, 200, 60),
+			Length = 4.2,
+			Glow = true,
+			Fire = true,
+			Wings = true,
+		},
+	},
+	StarBlade = {
+		Name = "Hoja estelar",
+		Rarity = "Mythic",
+		Price = 5000,
+		Damage = 35,
+		AttackSpeed = 0.25,
+		Passive = "StarWave",
+		PassiveText = "Cada 4º golpe lanza una onda de energía",
+		Description = "Dicen que cayó del cielo una noche de tormenta.",
+		Look = {
+			Blade = Color3.fromRGB(215, 195, 255),
+			Guard = Color3.fromRGB(255, 210, 90),
+			Handle = Color3.fromRGB(50, 30, 90),
+			Gem = Color3.fromRGB(255, 80, 200),
+			Length = 4.6,
+			Glow = true,
+			Sparkles = true,
+			Wings = true,
+		},
+	},
+}
+Config.WeaponOrder = { "IronSword", "SteelSword", "WindBlade", "FlameSword", "StarBlade" }
+
+-- Pasivas de las armas
+Config.WeaponPassives = {
+	DoubleHit = { Chance = 0.15 },
+	Burn = { Duration = 3, TickDamageMult = 0.1 },
+	StarWave = { EveryHits = 4, Range = 28, Width = 5, DamageMult = 0.8, Color = Color3.fromRGB(220, 170, 255) },
+}
+
+--------------------------------------------------------------------------------
+-- Tiendas de la zona segura (NPC + decoración)
+--------------------------------------------------------------------------------
+
+Config.ShopTalkDistance = 14
+
+Config.Shops = {
+	Medicine = {
+		Title = "Medicina",
+		Icon = "⚗️",
+		Npc = "Herbolaria Liora",
+		Greeting = "¡Bienvenido! Mis pociones curan cualquier herida. ¿Qué necesitas?",
+		Position = Vector3.new(28, 0, 9),
+		Color = Color3.fromRGB(110, 210, 140),
+		Items = { "HealthPotion", "FullPotion", "ManaPotion", "StaminaPotion", "StatReset" },
+	},
+	Blacksmith = {
+		Title = "Herrería",
+		Icon = "⚒️",
+		Npc = "Herrero Brakk",
+		Greeting = "¡Acero de la mejor calidad! Cuanto más pagues, mejor la hoja.",
+		Position = Vector3.new(28, 0, -14),
+		Color = Color3.fromRGB(255, 150, 70),
+		Weapons = Config.WeaponOrder,
+	},
+}
+
+--------------------------------------------------------------------------------
+-- Estilos de ataque (animación y color del golpe según raza o arma)
+--------------------------------------------------------------------------------
+
+Config.AttackStyles = {
+	Punch = { Color = Color3.fromRGB(235, 235, 245) }, -- Human: puñetazo
+	Swift = { Color = Color3.fromRGB(120, 240, 150) }, -- Elf: dos golpes rápidos
+	Smash = { Color = Color3.fromRGB(255, 90, 60) }, -- Ogre: golpe con los dos brazos desde arriba
+	Cast = { Color = Color3.fromRGB(255, 170, 80) }, -- Invocado: empuje mágico con la mano (color del elemento)
+	SlimeLunge = { Color = Color3.fromRGB(90, 170, 255) }, -- Slime: se estira y salta hacia delante
+	Slash = { Color = Color3.fromRGB(230, 230, 255) }, -- con espada: tajo (color de la rareza)
+}
+
+function Config.GetAttackStyle(raceId, weaponId)
+	local race = Config.Races[raceId]
+	if weaponId and Config.Weapons[weaponId] and not race.CanAbsorb then
+		return "Slash"
+	end
+	if race.CanAbsorb then
+		return "SlimeLunge"
+	elseif race.Element then
+		return "Cast"
+	elseif raceId == "Ogre" then
+		return "Smash"
+	elseif race.ElfEars then
+		return "Swift"
+	end
+	return "Punch"
+end
+
+-- Segundos entre golpes, según la velocidad de ataque del arma
+function Config.AttackCooldown(weaponId)
+	local weapon = weaponId and Config.Weapons[weaponId]
+	return Config.Attack.Cooldown / (1 + (if weapon then weapon.AttackSpeed else 0))
+end
 
 -- Ajustes del jugador (se guardan en su cuenta, no en el slot)
 Config.Settings = {

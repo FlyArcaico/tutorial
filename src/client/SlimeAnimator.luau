@@ -50,6 +50,15 @@ local function watchPlayer(player)
 	player.CharacterAdded:Connect(watchCharacter)
 end
 
+-- Animación de ataque del Slime (la llama el cliente al recibir AttackFx)
+function SlimeAnimator.PlayAttack(character)
+	local body = character:FindFirstChild("SlimeBody")
+	local info = body and tracked[body]
+	if info then
+		info.AttackStart = os.clock()
+	end
+end
+
 function SlimeAnimator.Start()
 	for _, player in Players:GetPlayers() do
 		watchPlayer(player)
@@ -76,7 +85,16 @@ function SlimeAnimator.Start()
 
 			-- Respirar: más ancho cuando está más bajo
 			local squash = 0.05 * strength * wave
-			local scale = Vector3.new(1 + squash * 0.7, 1 - squash, 1 + squash * 0.7)
+
+			-- Ataque: se estira hacia delante como un muelle
+			local lunge = 0
+			local attackTime = now - (info.AttackStart or -10)
+			if attackTime < 0.3 then
+				lunge = math.sin(attackTime / 0.3 * math.pi)
+			end
+
+			local scale =
+				Vector3.new(1 + squash * 0.7 - lunge * 0.12, 1 - squash - lunge * 0.2, 1 + squash * 0.7 + lunge * 0.45)
 			for _, mesh in info.Meshes do
 				mesh.Scale = scale
 			end
@@ -84,11 +102,11 @@ function SlimeAnimator.Start()
 			-- El resto de piezas baja y sube con el cuerpo; los ojos un poco más
 			local d = info.Size
 			for _, piece in info.Eyes do
-				local offset = -squash * d * 0.4
+				local offset = -squash * d * 0.4 - lunge * d * 0.08
 				if piece.IsEye then
 					offset += d * 0.025 * math.sin(now * speed * 0.5 + info.Phase)
 				end
-				piece.Joint.C0 = piece.Base * CFrame.new(0, offset, 0)
+				piece.Joint.C0 = piece.Base * CFrame.new(0, offset, -lunge * d * 0.22)
 			end
 		end
 	end)

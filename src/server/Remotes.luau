@@ -32,6 +32,9 @@ local Remotes = {
 	UseItem = make("RemoteFunction", "UseItem"), -- usar un objeto del inventario
 	SaveSetting = make("RemoteEvent", "SaveSetting"), -- guardar un ajuste
 	AllocateStat = make("RemoteFunction", "AllocateStat"), -- repartir un punto de atributo
+	BuyWeapon = make("RemoteFunction", "BuyWeapon"), -- comprar un arma en la Herrería
+	Equip = make("RemoteFunction", "Equip"), -- equipar / quitar un arma
+	AttackFx = make("RemoteEvent", "AttackFx"), -- servidor -> todos: animación de ataque de un personaje
 }
 
 folder.Parent = ReplicatedStorage

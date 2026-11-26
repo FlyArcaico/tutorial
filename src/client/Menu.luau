@@ -46,7 +46,7 @@ local background = create("Frame", {
 	BackgroundTransparency = 0.15,
 }, gui)
 create("UIGradient", {
-	Color = ColorSequence.new(Color3.fromRGB(45, 35, 90), Color3.fromRGB(10, 12, 25)),
+	Color = ColorSequence.new(Color3.fromRGB(20, 55, 110), Color3.fromRGB(4, 8, 22)),
 	Rotation = 90,
 }, background)
 
@@ -90,9 +90,11 @@ UI.label(mainScreen, {
 	AnchorPoint = Vector2.new(0.5, 0),
 	Position = UDim2.fromScale(0.5, 0.07),
 	Size = UDim2.new(0.9, 0, 0, 56),
-	Font = Enum.Font.GothamBlack,
-	TextSize = 46,
+	Font = UI.Fonts.Title,
+	TextSize = 54,
 	TextColor3 = Colors.Accent,
+	TextStrokeColor3 = Color3.fromRGB(10, 60, 120),
+	TextStrokeTransparency = 0,
 	Text = Config.GameName,
 })
 
@@ -101,8 +103,9 @@ UI.label(mainScreen, {
 	Position = UDim2.new(0.5, 0, 0.07, 60),
 	Size = UDim2.new(0.9, 0, 0, 24),
 	TextSize = 18,
-	TextColor3 = Colors.Muted,
-	Text = "Elige un slot",
+	Font = UI.Fonts.Title,
+	TextColor3 = Colors.Gold,
+	Text = "◆ Elige un slot ◆",
 })
 
 local slotsRow = create("Frame", {
@@ -160,8 +163,7 @@ local leftPanel = create("Frame", {
 	BackgroundColor3 = Colors.Panel,
 	BackgroundTransparency = 0.1,
 }, slotScreen)
-UI.round(leftPanel, 14)
-local leftStroke = create("UIStroke", { Thickness = 2, Color = Colors.Muted }, leftPanel)
+local leftStroke = UI.theme(leftPanel, 14)
 
 local viewport = create("ViewportFrame", {
 	Size = UDim2.new(1, 0, 1, -70),
@@ -196,7 +198,7 @@ local rightPanel = create("Frame", {
 	BackgroundColor3 = Colors.Panel,
 	BackgroundTransparency = 0.1,
 }, slotScreen)
-UI.round(rightPanel, 14)
+UI.theme(rightPanel, 14)
 UI.padding(rightPanel, 14)
 
 local infoScroll = create("ScrollingFrame", {
@@ -420,10 +422,10 @@ local function updateSpinButton()
 	confirmSpin = false
 	if currentSlot.Spins > 0 then
 		spinButton.Text = "Spin (" .. currentSlot.Spins .. " restantes)"
-		spinButton.BackgroundColor3 = SPIN_COLOR
+		UI.setButtonColor(spinButton, SPIN_COLOR)
 	else
 		spinButton.Text = "Sin spins"
-		spinButton.BackgroundColor3 = Colors.PanelLight
+		UI.setButtonColor(spinButton, Colors.PanelLight)
 	end
 end
 
@@ -440,9 +442,11 @@ local function buildSlotCard(summary)
 		LayoutOrder = summary.Index,
 	}, slotsRow)
 	create("UISizeConstraint", { MaxSize = Vector2.new(240, 300) }, card)
-	UI.round(card, 14)
+	local stroke = UI.theme(card, 14, Colors.PanelLight)
+	if summary.Locked then
+		card.BackgroundTransparency = 0.35
+	end
 	UI.padding(card, 14)
-	local stroke = create("UIStroke", { Thickness = 2, Color = Colors.PanelLight }, card)
 
 	UI.label(card, {
 		Size = UDim2.new(1, 0, 0, 26),
@@ -620,7 +624,7 @@ spinButton.Activated:Connect(function()
 	if (rarityId == "Mythic" or rarityId == "Legendary") and not confirmSpin then
 		confirmSpin = true
 		spinButton.Text = "¿Seguro? Perderás tu raza"
-		spinButton.BackgroundColor3 = Colors.Red
+		UI.setButtonColor(spinButton, Colors.Red)
 		task.delay(3, function()
 			if confirmSpin and not busy then
 				updateSpinButton()

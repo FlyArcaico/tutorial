@@ -31,12 +31,8 @@ local window = create("Frame", {
 	BackgroundColor3 = Colors.White,
 }, gui)
 create("UISizeConstraint", { MinSize = Vector2.new(320, 0), MaxSize = Vector2.new(620, 2000) }, window)
-UI.round(window, 14)
-create("UIGradient", {
-	Color = ColorSequence.new(Color3.fromRGB(45, 40, 75), Color3.fromRGB(18, 18, 32)),
-	Rotation = 90,
-}, window)
-create("UIStroke", { Color = GOLD, Thickness = 2 }, window)
+UI.theme(window, 14, GOLD)
+window.Active = true
 UI.padding(window, 16)
 create("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, window)
 

@@ -1,4 +1,4 @@
--- Menú del personaje (tecla M): Inventario, Stats, Tienda y Ajustes.
+-- Menú del personaje (tecla M): Inventario, Atributos (con gráfica hexagonal), Tienda y Ajustes.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
@@ -8,15 +8,15 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Co
 local UI = require(script.Parent.UI)
 
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
-local buyRemote = remotes:WaitForChild("Buy")
 local useItemRemote = remotes:WaitForChild("UseItem")
 local allocateRemote = remotes:WaitForChild("AllocateStat")
+local equipRemote = remotes:WaitForChild("Equip")
 local saveSettingRemote = remotes:WaitForChild("SaveSetting")
 
 local player = Players.LocalPlayer
 local Colors = UI.Colors
 local create = UI.create
-local GOLD = Color3.fromRGB(255, 205, 70)
+local GOLD = Colors.Gold
 
 local CharacterMenu = {}
 
@@ -31,38 +31,28 @@ local gui = create("ScreenGui", {
 }, player:WaitForChild("PlayerGui"))
 
 -- Botón para abrirlo (encima del contador de oro)
-local openButton = UI.button(gui, "🎒  Personaje (M)", Color3.fromRGB(45, 48, 75), {
+local openButton = UI.button(gui, "🎒  Personaje (M)", Colors.PanelLight, {
 	AnchorPoint = Vector2.new(1, 1),
 	Position = if UserInputService.TouchEnabled then UDim2.new(1, -150, 1, -76) else UDim2.new(1, -16, 1, -76),
 	Size = UDim2.fromOffset(170, 40),
 	TextSize = 15,
 })
-create("UIStroke", { Color = Color3.fromRGB(85, 95, 140), Thickness = 1.5 }, openButton)
 
-local window = create("Frame", {
+local window = UI.panel(gui, {
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromScale(0.72, 0.74),
-	BackgroundColor3 = Colors.White,
+	Size = UDim2.fromScale(0.8, 0.82),
 	Active = true, -- los clics sobre la ventana no cuentan como ataque
 	Visible = false,
-}, gui)
-create("UISizeConstraint", { MinSize = Vector2.new(360, 280), MaxSize = Vector2.new(780, 520) }, window)
-UI.round(window, 16)
-create("UIGradient", {
-	Color = ColorSequence.new(Color3.fromRGB(42, 45, 75), Color3.fromRGB(16, 18, 30)),
-	Rotation = 90,
-}, window)
-create("UIStroke", { Color = Colors.Accent, Thickness = 2 }, window)
+}, 16)
+create("UISizeConstraint", { MinSize = Vector2.new(380, 300), MaxSize = Vector2.new(900, 580) }, window)
 
 -- Cabecera
-UI.label(window, {
-	Position = UDim2.fromOffset(18, 12),
-	Size = UDim2.new(0.5, 0, 0, 30),
-	Font = Enum.Font.GothamBlack,
-	TextSize = 22,
+UI.header(window, "Estado del personaje", {
+	Position = UDim2.fromOffset(18, 10),
+	Size = UDim2.new(0.5, 0, 0, 32),
 	TextXAlignment = Enum.TextXAlignment.Left,
-	Text = "🎒 Tu personaje",
+	TextSize = 24,
 })
 local goldLabel = UI.label(window, {
 	AnchorPoint = Vector2.new(1, 0),
@@ -84,19 +74,20 @@ local closeButton = UI.button(window, "✕", Colors.Red, {
 -- Pestañas (izquierda)
 local tabColumn = create("Frame", {
 	Position = UDim2.fromOffset(14, 56),
-	Size = UDim2.new(0, 140, 1, -70),
+	Size = UDim2.new(0, 150, 1, -70),
 	BackgroundTransparency = 1,
 }, window)
 create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, tabColumn)
 
 -- Contenido (derecha)
 local contentArea = create("Frame", {
-	Position = UDim2.fromOffset(166, 56),
-	Size = UDim2.new(1, -180, 1, -70),
-	BackgroundColor3 = Color3.fromRGB(14, 15, 26),
-	BackgroundTransparency = 0.3,
+	Position = UDim2.fromOffset(176, 56),
+	Size = UDim2.new(1, -190, 1, -70),
+	BackgroundColor3 = Color3.fromRGB(4, 8, 20),
+	BackgroundTransparency = 0.35,
 }, window)
 UI.round(contentArea, 12)
+create("UIStroke", { Color = Colors.AccentDark, Thickness = 1, Transparency = 0.4 }, contentArea)
 
 local TABS = {
 	{ Id = "Inventory", Name = "🎒 Inventario" },
@@ -116,6 +107,7 @@ for order, tab in TABS do
 		CanvasSize = UDim2.new(),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		ScrollBarThickness = 6,
+		ScrollBarImageColor3 = Colors.Accent,
 		Visible = false,
 	}, contentArea)
 	UI.padding(page, 12)
@@ -144,12 +136,12 @@ local function clear(container)
 	end
 end
 
-local function getInventory()
-	local inventory = {}
-	for itemId, count in string.gmatch(player:GetAttribute("Inventory") or "", "(%w+)=(%d+)") do
-		inventory[itemId] = tonumber(count)
+local function parsePairs(text)
+	local values = {}
+	for key, value in string.gmatch(text or "", "(%w+)=(%d+)") do
+		values[key] = tonumber(value)
 	end
-	return inventory
+	return values
 end
 
 local function getSkills()
@@ -160,15 +152,31 @@ local function getSkills()
 	return skills
 end
 
+local function getOwnedWeapons()
+	local owned = {}
+	for weaponId in string.gmatch(player:GetAttribute("Weapons") or "", "[^,]+") do
+		owned[weaponId] = true
+	end
+	return owned
+end
+
 local function getRaceId()
 	local raceId = player:GetAttribute("Race")
 	return if raceId and Config.Races[raceId] then raceId else Config.DefaultRace
 end
 
+local function percent(value)
+	return tostring(math.floor(value * 100 + 0.5)) .. "%"
+end
+
+local function hex(color)
+	return "#" .. color:ToHex()
+end
+
 local feedbackToken = 0
 local feedbackLabel = UI.label(window, {
 	AnchorPoint = Vector2.new(0.5, 1),
-	Position = UDim2.new(0.5, 0, 1, -4),
+	Position = UDim2.new(0.5, 0, 1, -2),
 	Size = UDim2.new(1, -40, 0, 14),
 	TextSize = 13,
 	TextColor3 = Color3.fromRGB(255, 120, 120),
@@ -195,48 +203,145 @@ local function call(remote, ...)
 	return true
 end
 
+-- Tarjeta con fondo del tema (tamaño automático en Y si no se da alto)
 local function card(parent, order, height)
 	local frame = create("Frame", {
 		Size = UDim2.new(1, 0, 0, height or 0),
 		AutomaticSize = if height then Enum.AutomaticSize.None else Enum.AutomaticSize.Y,
-		BackgroundColor3 = Color3.fromRGB(38, 40, 66),
+		BackgroundColor3 = Color3.fromRGB(16, 30, 62),
+		BackgroundTransparency = 0.15,
 		LayoutOrder = order,
 	}, parent)
 	UI.round(frame, 10)
+	create("UIStroke", { Color = Colors.AccentDark, Thickness = 1, Transparency = 0.35 }, frame)
 	UI.padding(frame, 10)
 	return frame
 end
 
+local function sectionTitle(parent, order, text)
+	return UI.label(parent, {
+		Size = UDim2.new(1, 0, 0, 22),
+		Font = UI.Fonts.Title,
+		TextSize = 17,
+		TextColor3 = GOLD,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = order,
+		Text = "◆ " .. text,
+	})
+end
+
+local function list(parent, padding)
+	return create(
+		"UIListLayout",
+		{ Padding = UDim.new(0, padding or 8), SortOrder = Enum.SortOrder.LayoutOrder },
+		parent
+	)
+end
+
 --------------------------------------------------------------------------------
--- Inventario
+-- Inventario: armas y objetos
 --------------------------------------------------------------------------------
 
 local function renderInventory()
 	local page = pages.Inventory
 	clear(page)
-	create("UIGridLayout", {
-		CellSize = UDim2.fromOffset(130, 150),
-		CellPadding = UDim2.fromOffset(10, 10),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-	}, page)
+	list(page, 10)
 
-	local inventory = getInventory()
-	local any = false
+	local race = Config.Races[getRaceId()]
+	local owned = getOwnedWeapons()
+	local equipped = player:GetAttribute("Equipped") or ""
+
+	-- Armas
+	sectionTitle(page, 1, "Armas")
+	local weaponsBox = create("Frame", {
+		Size = UDim2.fromScale(1, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = 2,
+	}, page)
+	list(weaponsBox, 6)
+	local anyWeapon = false
+	for order, weaponId in Config.WeaponOrder do
+		if owned[weaponId] then
+			anyWeapon = true
+			local weapon = Config.Weapons[weaponId]
+			local rarity = Config.Rarities[weapon.Rarity]
+			local row = card(weaponsBox, order, 58)
+			UI.label(row, {
+				Size = UDim2.new(1, -120, 1, 0),
+				TextSize = 13,
+				RichText = true,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Text = string.format(
+					'⚔️ <font color="%s"><b>%s</b> (%s)</font>\n<font color="%s">+%d daño · +%s vel. ataque%s</font>',
+					hex(rarity.Color),
+					weapon.Name,
+					rarity.Name,
+					hex(Colors.Muted),
+					weapon.Damage,
+					percent(weapon.AttackSpeed),
+					if weapon.PassiveText then " · " .. weapon.PassiveText else ""
+				),
+			})
+			local isEquipped = equipped == weaponId
+			local button = UI.button(
+				row,
+				if isEquipped then "Quitar" else "Equipar",
+				if isEquipped then Colors.PanelLight else Colors.Green,
+				{
+					AnchorPoint = Vector2.new(1, 0.5),
+					Position = UDim2.fromScale(1, 0.5),
+					Size = UDim2.fromOffset(100, 34),
+					TextSize = 14,
+				}
+			)
+			button.Activated:Connect(function()
+				call(equipRemote, if isEquipped then "" else weaponId)
+			end)
+		end
+	end
+	if not anyWeapon or race.CanAbsorb then
+		UI.label(weaponsBox, {
+			Size = UDim2.new(1, 0, 0, 34),
+			TextSize = 13,
+			TextColor3 = Colors.Muted,
+			LayoutOrder = 99,
+			Text = if race.CanAbsorb
+				then "El Slime aún no tiene forma humana: todavía no puede usar armas."
+				else "No tienes armas. Cómpralas en la Herrería de la zona segura.",
+		})
+	end
+
+	-- Objetos
+	sectionTitle(page, 3, "Objetos")
+	local grid = create("Frame", {
+		Size = UDim2.fromScale(1, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = 4,
+	}, page)
+	create("UIGridLayout", {
+		CellSize = UDim2.fromOffset(122, 140),
+		CellPadding = UDim2.fromOffset(8, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, grid)
+
+	local inventory = parsePairs(player:GetAttribute("Inventory"))
+	local anyItem = false
 	for order, itemId in Config.ItemOrder do
 		local count = inventory[itemId] or 0
 		if count > 0 then
-			any = true
+			anyItem = true
 			local item = Config.Items[itemId]
 			local tile = create("Frame", {
-				BackgroundColor3 = item.Color:Lerp(Color3.fromRGB(20, 20, 35), 0.7),
+				BackgroundColor3 = item.Color:Lerp(Color3.fromRGB(10, 18, 40), 0.75),
 				LayoutOrder = order,
-			}, page)
+			}, grid)
 			UI.round(tile, 12)
-			create("UIStroke", { Color = item.Color, Thickness = 1.5 }, tile)
-
+			create("UIStroke", { Color = item.Color, Thickness = 1.5, Transparency = 0.2 }, tile)
 			UI.label(
 				tile,
-				{ Position = UDim2.fromOffset(0, 6), Size = UDim2.new(1, 0, 0, 44), TextSize = 34, Text = item.Icon }
+				{ Position = UDim2.fromOffset(0, 6), Size = UDim2.new(1, 0, 0, 40), TextSize = 30, Text = item.Icon }
 			)
 			UI.label(tile, {
 				AnchorPoint = Vector2.new(1, 0),
@@ -248,8 +353,8 @@ local function renderInventory()
 				Text = "×" .. count,
 			})
 			UI.label(tile, {
-				Position = UDim2.fromOffset(6, 52),
-				Size = UDim2.new(1, -12, 0, 36),
+				Position = UDim2.fromOffset(6, 48),
+				Size = UDim2.new(1, -12, 0, 34),
 				Font = Enum.Font.GothamBold,
 				TextSize = 13,
 				Text = item.Name,
@@ -257,128 +362,250 @@ local function renderInventory()
 			local useButton = UI.button(tile, "Usar", Colors.Green, {
 				AnchorPoint = Vector2.new(0.5, 1),
 				Position = UDim2.new(0.5, 0, 1, -8),
-				Size = UDim2.new(1, -16, 0, 34),
-				TextSize = 15,
+				Size = UDim2.new(1, -16, 0, 32),
+				TextSize = 14,
 			})
 			useButton.Activated:Connect(function()
 				call(useItemRemote, itemId)
 			end)
 		end
 	end
-
-	if not any then
-		page:FindFirstChildOfClass("UIGridLayout"):Destroy()
+	if not anyItem then
 		UI.label(page, {
-			Size = UDim2.new(1, 0, 0, 60),
-			TextSize = 16,
+			Size = UDim2.new(1, 0, 0, 40),
+			TextSize = 13,
 			TextColor3 = Colors.Muted,
-			Text = "Tu inventario está vacío.\nCompra objetos en la Tienda con el oro que ganas.",
+			LayoutOrder = 5,
+			Text = "No tienes objetos. Compra pociones en la tienda de Medicina de la zona segura.",
 		})
 	end
 end
 
 --------------------------------------------------------------------------------
--- Stats
+-- Gráfica hexagonal de atributos
 --------------------------------------------------------------------------------
 
-local function percent(value)
-	return tostring(math.floor(value * 100 + 0.5)) .. "%"
+local function line(parent, a, b, thickness, color, transparency, zIndex)
+	local delta = b - a
+	create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2),
+		Size = UDim2.fromOffset(delta.Magnitude, thickness),
+		Rotation = math.deg(math.atan2(delta.Y, delta.X)),
+		BackgroundColor3 = color,
+		BackgroundTransparency = transparency or 0,
+		BorderSizePixel = 0,
+		ZIndex = zIndex or 1,
+	}, parent)
 end
+
+local function dot(parent, at, size, color, zIndex)
+	local frame = create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(at.X, at.Y),
+		Size = UDim2.fromOffset(size, size),
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+		ZIndex = zIndex or 3,
+	}, parent)
+	UI.round(frame, size // 2)
+end
+
+-- Dibuja la gráfica: hexágono de fondo, tus atributos (cian) y cómo quedarán al subir de nivel (dorado)
+local function radarChart(parent, stats, nextStats, size)
+	local chart = create("Frame", {
+		Size = UDim2.fromOffset(size, size),
+		BackgroundTransparency = 1,
+		LayoutOrder = 1,
+	}, parent)
+
+	local center = Vector2.new(size / 2, size / 2)
+	local radius = size / 2 - 44
+	local count = #Config.Stats
+	local function direction(index)
+		local angle = math.rad(-90 + (index - 1) * 360 / count)
+		return Vector2.new(math.cos(angle), math.sin(angle))
+	end
+
+	-- Escala: el atributo más alto (contando el próximo nivel) llega casi al borde
+	local highest = 1
+	for _, stat in Config.Stats do
+		highest = math.max(highest, stats[stat.Id], nextStats[stat.Id])
+	end
+	local scale = highest * 1.08
+
+	-- Fondo: 3 hexágonos y los ejes
+	for ring = 1, 3 do
+		local r = radius * ring / 3
+		for index = 1, count do
+			local nextIndex = index % count + 1
+			line(chart, center + direction(index) * r, center + direction(nextIndex) * r, 1, Colors.Accent, 0.7)
+		end
+	end
+	for index = 1, count do
+		line(chart, center, center + direction(index) * radius, 1, Colors.Accent, 0.75)
+	end
+
+	local function polygon(values, color, thickness, transparency, fill)
+		local points = {}
+		for index, stat in Config.Stats do
+			points[index] = center + direction(index) * radius * math.clamp(values[stat.Id] / scale, 0.04, 1)
+		end
+		for index = 1, count do
+			local nextIndex = index % count + 1
+			line(chart, points[index], points[nextIndex], thickness, color, transparency, 2)
+			-- "Relleno": rayos semitransparentes desde el centro
+			if fill then
+				line(chart, center, points[index], 10, color, 0.82, 1)
+			end
+		end
+		return points
+	end
+
+	polygon(nextStats, GOLD, 2, 0.35, false)
+	local points = polygon(stats, Colors.Accent, 3, 0, true)
+	for _, point in points do
+		dot(chart, point, 8, Color3.fromRGB(200, 245, 255))
+	end
+
+	-- Nombres y valores en cada punta
+	for index, stat in Config.Stats do
+		local at = center + direction(index) * (radius + 16)
+		UI.label(chart, {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(at.X, at.Y),
+			Size = UDim2.fromOffset(70, 30),
+			TextSize = 11,
+			RichText = true,
+			ZIndex = 4,
+			Text = string.format(
+				'%s <b>%s</b>\n<font color="%s"><b>%d</b></font>',
+				stat.Icon,
+				stat.Name,
+				hex(Colors.Accent),
+				stats[stat.Id]
+			),
+		})
+	end
+	return chart
+end
+
+--------------------------------------------------------------------------------
+-- Atributos
+--------------------------------------------------------------------------------
 
 local function renderStats()
 	local page = pages.Stats
 	clear(page)
-	create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, page)
+	list(page, 10)
 
 	local raceId = getRaceId()
 	local race = Config.Races[raceId]
 	local rarity = Config.Rarities[race.Rarity]
 	local level = player:GetAttribute("Level") or 1
 	local skills = getSkills()
-	local order = 0
-
-	local function section(title, rows)
-		order += 1
-		local box = card(page, order)
-		local lines = { '<font color="#' .. Colors.Accent:ToHex() .. '"><b>' .. title .. "</b></font>" }
-		for _, row in rows do
-			table.insert(lines, row[1] .. ":  <b>" .. row[2] .. "</b>")
-		end
-		UI.label(box, {
-			Size = UDim2.fromScale(1, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			TextSize = 15,
-			RichText = true,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			LineHeight = 1.15,
-			Text = table.concat(lines, "\n"),
-		})
+	local weaponId = player:GetAttribute("Equipped") or ""
+	if weaponId == "" or race.CanAbsorb then
+		weaponId = nil
 	end
-
 	local stats = Config.DecodeStats(player:GetAttribute("Stats"))
 	local freePoints = player:GetAttribute("StatPoints") or 0
 
-	section("PERSONAJE", {
-		{ "Raza", '<font color="#' .. rarity.Color:ToHex() .. '">' .. race.Name .. " (" .. rarity.Name .. ")</font>" },
-		{ "Nivel", tostring(level) },
-		{ "Forma", player:GetAttribute("Form") or race.Name },
-		{ "Despertar", if Config.GetAwakening(level) then Config.GetAwakening(level).Name else "Ninguno (nivel 20)" },
+	-- Cómo quedarán al subir 1 nivel (crecimiento de tu raza)
+	local nextStats = {}
+	for _, stat in Config.Stats do
+		nextStats[stat.Id] = stats[stat.Id] + race.Growth[stat.Id]
+	end
+
+	-- Resumen
+	UI.label(page, {
+		Size = UDim2.new(1, 0, 0, 20),
+		TextSize = 14,
+		RichText = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = 1,
+		Text = string.format(
+			'<font color="%s"><b>%s</b></font> (%s) · Nivel <b>%d</b> · %s%s',
+			hex(rarity.Color),
+			race.Name,
+			rarity.Name,
+			level,
+			player:GetAttribute("Form") or race.Name,
+			if Config.GetAwakening(level) then " · " .. Config.GetAwakening(level).Name else ""
+		),
 	})
 
-	-- Atributos con botón + para repartir puntos libres
-	order += 1
-	local statsBox = card(page, order)
-	create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, statsBox)
-	UI.label(statsBox, {
+	-- Fila superior: gráfica + atributos con botón +
+	local top = create("Frame", {
+		Size = UDim2.new(1, 0, 0, 240),
+		BackgroundTransparency = 1,
+		LayoutOrder = 2,
+	}, page)
+	create("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 10),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, top)
+	radarChart(top, stats, nextStats, 240)
+
+	local statList = create("Frame", {
+		Size = UDim2.new(1, -250, 1, 0),
+		BackgroundTransparency = 1,
+		LayoutOrder = 2,
+	}, top)
+	list(statList, 4)
+	UI.label(statList, {
 		Size = UDim2.new(1, 0, 0, 20),
-		TextSize = 15,
+		TextSize = 13,
 		RichText = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		LayoutOrder = 0,
 		Text = string.format(
-			'<font color="#%s"><b>ATRIBUTOS</b></font>   Puntos libres: <font color="#%s"><b>%d</b></font>',
-			Colors.Accent:ToHex(),
-			GOLD:ToHex(),
-			freePoints
+			'Puntos libres: <font color="%s"><b>%d</b></font>   <font color="%s">— actual  <font color="%s">— próximo nivel</font></font>',
+			hex(GOLD),
+			freePoints,
+			hex(Colors.Accent),
+			hex(GOLD)
 		),
 	})
 	for index, stat in Config.Stats do
-		local growth = race.Growth[stat.Id]
 		local row = create("Frame", {
-			Size = UDim2.new(1, 0, 0, 36),
-			BackgroundColor3 = Color3.fromRGB(28, 30, 50),
+			Size = UDim2.new(1, 0, 0, 32),
+			BackgroundColor3 = Color3.fromRGB(14, 26, 54),
+			BackgroundTransparency = 0.1,
 			LayoutOrder = index,
-		}, statsBox)
+		}, statList)
 		UI.round(row, 8)
 		UI.label(row, {
-			Position = UDim2.fromOffset(10, 0),
-			Size = UDim2.new(1, -120, 1, 0),
-			TextSize = 14,
+			Position = UDim2.fromOffset(8, 0),
+			Size = UDim2.new(1, -110, 1, 0),
+			TextSize = 13,
 			RichText = true,
 			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
 			Text = string.format(
-				'%s <b>%s</b>  <font color="#%s">%s · +%d por nivel</font>',
+				'%s <b>%s</b> <font color="%s">+%d/nv</font>',
 				stat.Icon,
 				stat.Name,
-				Colors.Muted:ToHex(),
-				stat.Description,
-				growth
+				hex(Colors.Muted),
+				race.Growth[stat.Id]
 			),
 		})
 		UI.label(row, {
 			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, -50, 0, 0),
-			Size = UDim2.new(0, 60, 1, 0),
+			Position = UDim2.new(1, -44, 0, 0),
+			Size = UDim2.new(0, 56, 1, 0),
 			Font = Enum.Font.GothamBlack,
-			TextSize = 18,
+			TextSize = 17,
+			TextColor3 = Colors.Accent,
 			TextXAlignment = Enum.TextXAlignment.Right,
 			Text = tostring(stats[stat.Id]),
 		})
 		local plus = UI.button(row, "+", if freePoints > 0 then Colors.Green else Colors.PanelLight, {
 			AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(1, -4, 0.5, 0),
-			Size = UDim2.fromOffset(36, 28),
-			TextSize = 20,
+			Size = UDim2.fromOffset(32, 26),
+			TextSize = 18,
 		})
 		plus.Activated:Connect(function()
 			if freePoints > 0 then
@@ -387,172 +614,237 @@ local function renderStats()
 		end)
 	end
 
-	local combat = {
-		{ "Vida máxima", tostring(Config.MaxHealth(stats, raceId, skills)) },
-		{ "Maná máximo", tostring(Config.MaxMana(stats, raceId)) },
-		{ "Stamina", tostring(Config.MaxStamina(stats, raceId)) },
-		{ "Daño (clic)", tostring(Config.AttackDamage(stats, raceId, level, skills)) },
-		{ "Alcance (clic)", string.format("%.1f studs", Config.AttackRange(level, raceId)) },
+	-- Combate: rejilla compacta de 2 columnas
+	sectionTitle(page, 3, "Combate")
+	local grid = create("Frame", {
+		Size = UDim2.fromScale(1, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = 4,
+	}, page)
+	create("UIGridLayout", {
+		CellSize = UDim2.new(0.5, -4, 0, 26),
+		CellPadding = UDim2.fromOffset(8, 4),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, grid)
+	local speed = Config.WalkSpeed(stats, raceId)
+	local combatValues = {
+		{ "❤️ Vida", tostring(Config.MaxHealth(stats, raceId, skills)) },
+		{ "🔮 Maná", tostring(Config.MaxMana(stats, raceId)) },
+		{ "💨 Stamina", tostring(Config.MaxStamina(stats, raceId)) },
+		{ "⚔️ Daño (clic)", tostring(Config.AttackDamage(stats, raceId, level, skills, weaponId)) },
+		{ "⏱️ Golpes/seg", string.format("%.1f", 1 / Config.AttackCooldown(weaponId)) },
+		{ "📏 Alcance", string.format("%.1f", Config.AttackRange(level, raceId)) },
+		{ "👟 Velocidad", string.format("%.1f (correr x%.2f)", speed, race.Stamina.SpeedMult) },
+		{ "🛡️ Res. física", percent(Config.PhysicalResist(stats, raceId)) },
+		{ "✨ Res. mágica", percent(Config.MagicResist(stats, raceId)) },
+		{ "🪙 Oro / XP", "x" .. race.GoldMult .. " / +" .. percent(race.XPMult - 1) },
 	}
-	for abilityId, ability in Config.Abilities do
+	for order, value in combatValues do
+		local cell = create("Frame", {
+			BackgroundColor3 = Color3.fromRGB(14, 26, 54),
+			BackgroundTransparency = 0.1,
+			LayoutOrder = order,
+		}, grid)
+		UI.round(cell, 6)
+		UI.label(cell, {
+			Position = UDim2.fromOffset(8, 0),
+			Size = UDim2.new(1, -16, 1, 0),
+			TextSize = 13,
+			RichText = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Text = value[1] .. '  <b><font color="' .. hex(Colors.Accent) .. '">' .. value[2] .. "</font></b>",
+		})
+	end
+
+	-- Habilidades: activas con daño, maná y recarga; pasivas; y las que faltan
+	sectionTitle(page, 5, "Habilidades")
+	local skillBox = create("Frame", {
+		Size = UDim2.fromScale(1, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = 6,
+	}, page)
+	list(skillBox, 4)
+	local skillOrder = 0
+	local function skillRow(text, locked)
+		skillOrder += 1
+		local row = create("Frame", {
+			Size = UDim2.fromScale(1, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			BackgroundColor3 = if locked then Color3.fromRGB(12, 16, 30) else Color3.fromRGB(14, 26, 54),
+			BackgroundTransparency = 0.1,
+			LayoutOrder = skillOrder,
+		}, skillBox)
+		UI.round(row, 6)
+		create("UIPadding", {
+			PaddingLeft = UDim.new(0, 8),
+			PaddingRight = UDim.new(0, 8),
+			PaddingTop = UDim.new(0, 5),
+			PaddingBottom = UDim.new(0, 5),
+		}, row)
+		UI.label(row, {
+			Size = UDim2.fromScale(1, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			TextSize = 13,
+			RichText = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = if locked then Colors.Muted else Colors.White,
+			Text = text,
+		})
+	end
+
+	local abilityIds = {}
+	for abilityId in Config.Abilities do
+		table.insert(abilityIds, abilityId)
+	end
+	table.sort(abilityIds)
+	for _, abilityId in abilityIds do
 		if Config.CanUseAbility(raceId, skills, abilityId) then
-			table.insert(combat, {
-				ability.Icon .. " " .. ability.DisplayName,
-				Config.AbilityDamage(stats, raceId, abilityId) .. " daño · " .. ability.ManaCost .. " MP",
-			})
+			local ability = Config.Abilities[abilityId]
+			skillRow(
+				string.format(
+					'%s <b>%s</b> [%s]  <font color="%s">%d daño · %d MP · %ss</font>\n<font color="%s">%s</font>',
+					ability.Icon,
+					ability.DisplayName,
+					ability.Key,
+					hex(Colors.Accent),
+					Config.AbilityDamage(stats, raceId, abilityId),
+					ability.ManaCost,
+					tostring(ability.Cooldown),
+					hex(Colors.Muted),
+					ability.Description
+				)
+			)
 		end
 	end
-	section("COMBATE", combat)
-
-	local speed = Config.WalkSpeed(stats, raceId)
-	section("MOVIMIENTO", {
-		{ "Velocidad", string.format("%.1f", speed) },
-		{ "Corriendo", string.format("%.1f (x%.2f)", speed * race.Stamina.SpeedMult, race.Stamina.SpeedMult) },
-		{
-			"Stamina por segundo",
-			string.format("-%d al correr / +%d al descansar", race.Stamina.Drain, race.Stamina.Regen),
-		},
-	})
-
-	section("DEFENSA", {
-		{ "Resistencia física", percent(Config.PhysicalResist(stats, raceId)) },
-		{ "Resistencia mágica", percent(Config.MagicResist(stats, raceId)) },
-	})
-
-	-- Slime: nivel de absorción y habilidades robadas
 	if race.CanAbsorb then
+		local absorbed = parsePairs(player:GetAttribute("Absorbed"))
 		local tier = Config.GetAbsorbTier(level)
-		local absorbed = {}
-		for monsterId, count in string.gmatch(player:GetAttribute("Absorbed") or "", "(%w+)=(%d+)") do
-			absorbed[monsterId] = tonumber(count)
-		end
-		local rows = {
-			{
-				"Habilidad",
-				'<font color="#FF78B4">' .. tier.Name .. (if tier.Unique then " (Única)" else "") .. "</font>",
-			},
-			{ "Efecto", tier.Description },
-		}
-		for _, nextTier in Config.AbsorbTiers do
-			if nextTier.MinLevel > level then
-				table.insert(rows, { "Siguiente", nextTier.Name .. " a nivel " .. nextTier.MinLevel })
-				break
-			end
-		end
-		for monsterId, def in Config.Monsters do
-			local bonus = {}
-			for statId, amount in def.AbsorbStats do
-				for _, stat in Config.Stats do
-					if stat.Id == statId then
-						table.insert(bonus, "+" .. amount * tier.StatMult .. " " .. stat.Name)
-					end
-				end
-			end
-			table.insert(rows, {
-				def.DisplayName .. " absorbidos",
-				(absorbed[monsterId] or 0) .. "  (" .. table.concat(bonus, ", ") .. " cada uno)",
-			})
-		end
-		section("ABSORCIÓN", rows)
-
-		local skillRows = {}
+		skillRow(
+			string.format(
+				'🌀 <b><font color="#FF78B4">%s</font></b>%s [F]\n<font color="%s">%s</font>',
+				tier.Name,
+				if tier.Unique then " (Habilidad Única)" else "",
+				hex(Colors.Muted),
+				tier.Description
+			)
+		)
 		for _, skillId in Config.SkillOrder do
 			local skill = Config.Skills[skillId]
-			local have = skills[skillId] == true
-			table.insert(skillRows, {
-				(if have then "✅ " else "🔒 ") .. skill.DisplayName,
-				if have
-					then skill.Description
-					else string.format(
-						"Absorbe %d %s (%d/%d)",
+			if not skill.Ability then
+				local have = skills[skillId] == true
+				skillRow(
+					string.format(
+						"%s <b>%s</b>  %s",
+						if have then "✅" else "🔒",
+						skill.DisplayName,
+						if have
+							then skill.Description
+							else string.format(
+								"(absorbe %d %s: %d/%d)",
+								skill.Required,
+								Config.Monsters[skill.From].DisplayName,
+								math.min(absorbed[skill.From] or 0, skill.Required),
+								skill.Required
+							)
+					),
+					not have
+				)
+			elseif not skills[skillId] then
+				skillRow(
+					string.format(
+						"🔒 <b>%s</b>  (absorbe %d %s: %d/%d)",
+						skill.DisplayName,
 						skill.Required,
 						Config.Monsters[skill.From].DisplayName,
 						math.min(absorbed[skill.From] or 0, skill.Required),
 						skill.Required
 					),
-			})
+					true
+				)
+			end
 		end
-		section("HABILIDADES ROBADAS", skillRows)
+	else
+		for _, trait in race.Traits do
+			skillRow("◇ " .. trait)
+		end
 	end
 
-	local extras = {
-		{ "Daño mágico", "+" .. percent(race.MagicDamageMult - 1) },
-		{ "XP extra", "+" .. percent(race.XPMult - 1) },
-		{ "Oro por monstruo", "x" .. race.GoldMult },
-	}
+	-- Progresión por nivel: qué se desbloquea y cuándo
+	sectionTitle(page, 7, "Progresión por nivel")
+	local milestones = {}
 	if race.CanAbsorb then
-		table.insert(extras, { "Prob. absorber (monstruo de tu nivel)", percent(Config.AbsorbChance(level, level)) })
-		table.insert(extras, { "Regeneración fuera de combate", percent(race.HealthRegen) .. " vida/s" })
+		for index, form in Config.Forms do
+			if index > 1 then
+				table.insert(milestones, { form.MinLevel, "Evolución: " .. form.Name })
+			end
+		end
+		for index, tier in Config.AbsorbTiers do
+			if index > 1 then
+				table.insert(
+					milestones,
+					{ tier.MinLevel, "Absorción: " .. tier.Name .. (if tier.Unique then " (Única)" else "") }
+				)
+			end
+		end
 	end
-	if race.Berserk then
-		table.insert(extras, {
-			"Berserker (vida < " .. percent(race.Berserk.Threshold) .. ")",
-			"+"
-				.. percent(race.Berserk.DamageMult - 1)
-				.. " daño, +"
-				.. percent(race.Berserk.SpeedMult - 1)
-				.. " velocidad",
+	for _, awakening in Config.Awakenings do
+		table.insert(
+			milestones,
+			{ awakening.Level, awakening.Name .. ": +" .. percent(awakening.Bonus) .. " a todos los atributos" }
+		)
+	end
+	table.sort(milestones, function(a, b)
+		return a[1] < b[1]
+	end)
+	local progress = create("Frame", {
+		Size = UDim2.fromScale(1, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = 8,
+	}, page)
+	list(progress, 3)
+	for order, milestone in milestones do
+		local reached = level >= milestone[1]
+		UI.label(progress, {
+			Size = UDim2.new(1, 0, 0, 20),
+			TextSize = 13,
+			RichText = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = if reached then Colors.White else Colors.Muted,
+			LayoutOrder = order,
+			Text = string.format(
+				'%s <font color="%s"><b>Nv. %d</b></font>  %s',
+				if reached then "✅" else "🔒",
+				hex(GOLD),
+				milestone[1],
+				milestone[2]
+			),
 		})
 	end
-	section("EXTRA", extras)
 end
 
 --------------------------------------------------------------------------------
--- Tienda
+-- Tienda (de momento, las compras se hacen en las tiendas de la zona segura)
 --------------------------------------------------------------------------------
 
 local function renderShop()
 	local page = pages.Shop
 	clear(page)
-	create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, page)
-
-	local gold = player:GetAttribute("Gold") or 0
-	local inventory = getInventory()
-	for order, itemId in Config.ItemOrder do
-		local item = Config.Items[itemId]
-		local row = card(page, order, 78)
-		create("UIStroke", { Color = item.Color, Thickness = 1, Transparency = 0.5 }, row)
-
-		UI.label(row, { Size = UDim2.fromOffset(50, 58), TextSize = 32, Text = item.Icon })
-		UI.label(row, {
-			Position = UDim2.fromOffset(58, 0),
-			Size = UDim2.new(1, -250, 1, 0),
-			TextSize = 13,
-			RichText = true,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			Text = string.format(
-				'<b>%s</b>  <font color="#%s">(tienes %d)</font>\n<font color="#%s">%s</font>',
-				item.Name,
-				Colors.Muted:ToHex(),
-				inventory[itemId] or 0,
-				Colors.Muted:ToHex(),
-				item.Description
-			),
-		})
-
-		local canBuy = gold >= item.Price
-		local buyOne =
-			UI.button(row, "💰 " .. item.Price, if canBuy then GOLD:Lerp(Color3.new(), 0.3) else Colors.PanelLight, {
-				AnchorPoint = Vector2.new(1, 0.5),
-				Position = UDim2.new(1, -68, 0.5, 0),
-				Size = UDim2.fromOffset(100, 40),
-				TextSize = 15,
-			})
-		buyOne.Activated:Connect(function()
-			call(buyRemote, itemId, 1)
-		end)
-
-		local canBuyFive = gold >= item.Price * 5
-		local buyFive = UI.button(row, "×5", if canBuyFive then GOLD:Lerp(Color3.new(), 0.45) else Colors.PanelLight, {
-			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.fromScale(1, 0.5),
-			Size = UDim2.fromOffset(60, 40),
-			TextSize = 15,
-		})
-		buyFive.Activated:Connect(function()
-			call(buyRemote, itemId, 5)
-		end)
-	end
+	list(page, 12)
+	UI.header(page, "Próximamente...", {
+		Size = UDim2.new(1, 0, 0, 60),
+		TextSize = 32,
+		LayoutOrder = 1,
+	})
+	UI.label(page, {
+		Size = UDim2.new(1, 0, 0, 60),
+		TextSize = 15,
+		TextColor3 = Colors.Muted,
+		LayoutOrder = 2,
+		Text = "Mientras tanto, visita la ⚗️ Medicina y la ⚒️ Herrería en la zona segura.",
+	})
 end
 
 --------------------------------------------------------------------------------
@@ -562,7 +854,7 @@ end
 local function renderSettings()
 	local page = pages.Settings
 	clear(page)
-	create("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, page)
+	list(page, 8)
 
 	for order, setting in Config.Settings do
 		local row = card(page, order, 64)
@@ -572,9 +864,9 @@ local function renderSettings()
 			RichText = true,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			Text = string.format(
-				'<b>%s</b>\n<font color="#%s">%s</font>',
+				'<b>%s</b>\n<font color="%s">%s</font>',
 				setting.Name,
-				Colors.Muted:ToHex(),
+				hex(Colors.Muted),
 				setting.Description
 			),
 		})
@@ -597,7 +889,7 @@ local function renderSettings()
 		TextSize = 13,
 		TextColor3 = Colors.Muted,
 		LayoutOrder = 100,
-		Text = "Controles: Clic atacar · E habilidad · F absorber · Q embestir · Shift correr · T hablar · M este menú",
+		Text = "Controles: Clic atacar · E/R habilidades · F absorber · Q embestir · Shift correr · T hablar · M este menú",
 	})
 end
 
@@ -616,9 +908,7 @@ local function render()
 	goldLabel.Text = "💰 " .. tostring(player:GetAttribute("Gold") or 0) .. " oro"
 	for id, page in pages do
 		page.Visible = id == currentTab
-		tabButtons[id].BackgroundColor3 = if id == currentTab
-			then Colors.Accent:Lerp(Color3.new(), 0.3)
-			else Colors.PanelLight
+		UI.setButtonColor(tabButtons[id], if id == currentTab then Colors.AccentDark else Colors.PanelLight)
 	end
 	renderers[currentTab]()
 end
@@ -665,10 +955,20 @@ local WATCHED = {
 	StatPoints = true,
 	Absorbed = true,
 	AbsorbTier = true,
+	Weapons = true,
+	Equipped = true,
 }
+local pendingRender = false
 player.AttributeChanged:Connect(function(name)
-	if window.Visible and (WATCHED[name] or string.sub(name, 1, 7) == "Setting") then
-		render()
+	if window.Visible and (WATCHED[name] or string.sub(name, 1, 7) == "Setting") and not pendingRender then
+		-- Varios atributos cambian a la vez: redibujar una sola vez
+		pendingRender = true
+		task.defer(function()
+			pendingRender = false
+			if window.Visible then
+				render()
+			end
+		end)
 	end
 end)
 

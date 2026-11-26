@@ -38,24 +38,7 @@ local gui =
 
 -- Panel oscuro con degradado y borde
 local function panel(parent, props)
-	local frame = create("Frame", {
-		BackgroundColor3 = Colors.White,
-		BackgroundTransparency = 0.08,
-	}, parent)
-	for key, value in props do
-		frame[key] = value
-	end
-	UI.round(frame, 12)
-	create("UIGradient", {
-		Color = ColorSequence.new(Color3.fromRGB(40, 44, 72), Color3.fromRGB(16, 18, 30)),
-		Rotation = 90,
-	}, frame)
-	local stroke = create("UIStroke", {
-		Color = Color3.fromRGB(85, 95, 140),
-		Thickness = 1.5,
-		Transparency = 0.25,
-	}, frame)
-	return frame, stroke
+	return UI.panel(parent, props, 12)
 end
 
 -- Barra con relleno y texto encima
@@ -549,24 +532,42 @@ end
 -- Mensajes (arriba en el centro)
 --------------------------------------------------------------------------------
 
+-- Estilo "ventana del sistema": una cabecera 《 Aviso 》 y el mensaje debajo
 local notifyGroup = create("CanvasGroup", {
 	AnchorPoint = Vector2.new(0.5, 0),
 	Position = UDim2.new(0.5, 0, 0, 16),
-	Size = UDim2.fromOffset(0, 46),
+	Size = UDim2.fromOffset(0, 62),
 	AutomaticSize = Enum.AutomaticSize.X,
-	BackgroundColor3 = Color3.fromRGB(18, 20, 34),
-	BackgroundTransparency = 0.15,
 	GroupTransparency = 1,
 }, gui)
-UI.round(notifyGroup, 23)
-local notifyStroke = create("UIStroke", { Color = Colors.Accent, Thickness = 2 }, notifyGroup)
-create("UIPadding", { PaddingLeft = UDim.new(0, 20), PaddingRight = UDim.new(0, 20) }, notifyGroup)
+local notifyStroke = UI.theme(notifyGroup, 10)
+create("UIPadding", {
+	PaddingLeft = UDim.new(0, 24),
+	PaddingRight = UDim.new(0, 24),
+	PaddingTop = UDim.new(0, 6),
+}, notifyGroup)
+create("UIListLayout", {
+	HorizontalAlignment = Enum.HorizontalAlignment.Center,
+	SortOrder = Enum.SortOrder.LayoutOrder,
+}, notifyGroup)
+UI.label(notifyGroup, {
+	Size = UDim2.fromOffset(0, 18),
+	AutomaticSize = Enum.AutomaticSize.X,
+	Font = UI.Fonts.Title,
+	TextSize = 15,
+	TextColor3 = Colors.Gold,
+	TextWrapped = false,
+	LayoutOrder = 1,
+	Text = "《 Aviso 》",
+})
 local notifyLabel = UI.label(notifyGroup, {
-	Size = UDim2.fromScale(0, 1),
+	Size = UDim2.fromOffset(0, 30),
 	AutomaticSize = Enum.AutomaticSize.X,
 	Font = Enum.Font.GothamBold,
 	TextSize = 18,
 	TextWrapped = false,
+	TextStrokeTransparency = 0.6,
+	LayoutOrder = 2,
 	Text = "",
 })
 
@@ -893,6 +894,8 @@ local function refresh()
 		actions[abilityId].Button.Visible = Config.CanUseAbility(raceId, skills, abilityId)
 	end
 	actions.Absorb.Button.Visible = race.CanAbsorb
+	-- Las espadas rápidas bajan la recarga del clic
+	actions.Attack.Cooldown = player:GetAttribute("AttackCooldown") or Config.Attack.Cooldown
 	actions.Dash.Button.Visible = race.CanAbsorb and skills.Dash == true
 
 	-- Misión

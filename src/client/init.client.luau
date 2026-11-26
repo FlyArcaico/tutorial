@@ -3,16 +3,33 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
+local Animator = require(script.Animator)
 local CharacterMenu = require(script.CharacterMenu)
 local Dialog = require(script.Dialog)
 local Hud = require(script.Hud)
 local Menu = require(script.Menu)
+local ShopWindow = require(script.ShopWindow)
 local SlimeAnimator = require(script.SlimeAnimator)
 
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+local returnToMenuRemote = remotes:WaitForChild("ReturnToMenu")
+local attackFxRemote = remotes:WaitForChild("AttackFx")
+local player = Players.LocalPlayer
+
+-- Animaciones de andar/atacar de todos los personajes y del Slime
+Animator.Start()
 SlimeAnimator.Start()
 
-local returnToMenuRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("ReturnToMenu")
-local player = Players.LocalPlayer
+attackFxRemote.OnClientEvent:Connect(function(character, style)
+	if not character then
+		return
+	end
+	if style == "SlimeLunge" then
+		SlimeAnimator.PlayAttack(character)
+	else
+		Animator.PlayAttack(character, style)
+	end
+end)
 
 Menu.Init(function()
 	Hud.Show()
@@ -22,6 +39,7 @@ end)
 Hud.Init(function()
 	returnToMenuRemote:FireServer()
 	Dialog.Close()
+	ShopWindow.Close()
 	CharacterMenu.SetAllowed(false)
 	Hud.Hide()
 	Menu.Open()

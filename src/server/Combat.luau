@@ -333,28 +333,70 @@ local function onAttack(player)
 		return
 	end
 	local state = getState(player)
+	local race = Config.Races[slot.Race]
+	local weaponId = if race.CanAbsorb then nil else slot.Equipped
+	local weapon = weaponId and Config.Weapons[weaponId]
 	local now = os.clock()
-	if now - state.LastAttack < Config.Attack.Cooldown then
+	-- Un poco de margen por el retraso de red
+	if now - state.LastAttack < Config.AttackCooldown(weaponId) * 0.85 then
 		return
 	end
 	state.LastAttack = now
 	state.LastCombat = now
+	state.Hits = (state.Hits or 0) + 1
 
-	local race = Config.Races[slot.Race]
 	local body = Config.GetBody(slot.Race, slot.Level)
-	local range = Config.AttackRange(slot.Level, slot.Race)
+	local range = Config.AttackRange(slot.Level, slot.Race) + (if weapon then 1.5 else 0)
 	local stats = PlayerData.GetStats(player)
-	local damage = Config.AttackDamage(stats, slot.Race, slot.Level, slot.Skills) * stateDamageMult(state, race)
+	local damage = Config.AttackDamage(stats, slot.Race, slot.Level, slot.Skills, weaponId)
+		* stateDamageMult(state, race)
 	local root = character.HumanoidRootPart
 
-	for _, target in Monsters.InFront(root.CFrame, range) do
-		Monsters.Damage(target, player, damage)
+	-- Color del golpe: según la raza, el elemento o la rareza del arma
+	local style = Config.GetAttackStyle(slot.Race, weaponId)
+	local color = Config.AttackStyles[style].Color
+	if weapon then
+		color = Config.Rarities[weapon.Rarity].Color
+	elseif race.Element then
+		color = Config.Abilities[race.Abilities[1]].Color
+	elseif race.CanAbsorb then
+		color = body.Color
 	end
-	local color = if race.Element then Config.Abilities[race.Abilities[1]].Color else body.Color
 	if state.Berserk then
 		color = Color3.fromRGB(255, 50, 40)
 	end
+
+	local passive = weapon and weapon.Passive and Config.WeaponPassives[weapon.Passive]
+	for _, target in Monsters.InFront(root.CFrame, range) do
+		Monsters.Damage(target, player, damage, color)
+		if weapon and weapon.Passive == "DoubleHit" and math.random() < passive.Chance then
+			task.delay(0.12, function()
+				Monsters.Damage(target, player, damage, color)
+			end)
+		elseif weapon and weapon.Passive == "Burn" then
+			Monsters.Burn(target, player, damage * passive.TickDamageMult, passive.Duration)
+		end
+	end
+
+	-- Hoja estelar: cada X golpes lanza una onda de energía
+	if weapon and weapon.Passive == "StarWave" and state.Hits % passive.EveryHits == 0 then
+		local direction = root.CFrame.LookVector
+		for _, target in Monsters.InLine(root.Position, direction, passive.Range, passive.Width) do
+			Monsters.Damage(target, player, damage * passive.DamageMult, passive.Color)
+		end
+		playLineEffect(
+			root.Position,
+			direction,
+			{ Color = passive.Color, Range = passive.Range },
+			passive.Width,
+			0.3,
+			3
+		)
+	end
+
 	playAttackEffect(root, color, body.Size, range)
+	-- Todos los jugadores ven la animación de ataque de este personaje
+	Remotes.AttackFx:FireAllClients(character, style, color)
 end
 
 local function onCast(player, abilityId)
