@@ -95,6 +95,18 @@ local function setup(character)
 		end
 	end)
 
+	-- Silenciar SOLO el sonido de muerte de Roblox (lo crea su script de sonidos en el
+	-- HumanoidRootPart). Los pasos, el salto y demás sonidos se mantienen.
+	local function muteDeathSound(child)
+		if child:IsA("Sound") and child.Name == "Died" then
+			child.Volume = 0
+		end
+	end
+	for _, child in root:GetChildren() do
+		muteDeathSound(child)
+	end
+	root.ChildAdded:Connect(muteDeathSound)
+
 	local state = {
 		Character = character,
 		Player = Players:GetPlayerFromCharacter(character),
@@ -171,6 +183,11 @@ end
 function Animator.PlayAttack(character, style)
 	local state = tracked[character]
 	if not state or state.DeathTime then
+		return
+	end
+	-- Ha bloqueado un golpe: la guardia retrocede un momento
+	if style == "Block" then
+		state.BlockTime = 0
 		return
 	end
 	local now = os.clock()
@@ -286,6 +303,13 @@ local function animate(state, dt)
 	-- 4 y 5. Espada al hombro y guardia
 	layer(pose, AnimationData.Sample(Anim.SwordCarry, 0), state.Carry)
 	layer(pose, AnimationData.Sample(if weapon then set.GuardSword else set.Guard, state.IdleTime), state.Guard)
+	if state.BlockTime then
+		state.BlockTime += dt
+		local blockAnimation = if weapon then Anim.BlockHitSword else Anim.BlockHit
+		if not oneShot(pose, blockAnimation, state.BlockTime, 0.12) then
+			state.BlockTime = nil
+		end
+	end
 
 	-- 6. Golpe en curso
 	if state.Action then

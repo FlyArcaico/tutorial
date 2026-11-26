@@ -474,7 +474,7 @@ local function onAbsorb(player)
 		return
 	end
 
-	Remotes.AttackFx:FireAllClients(character, "SlimeCast")
+	Remotes.AttackFx:FireAllClients(character, "SlimeAbsorb")
 	local successes = 0
 	for _, essence in absorbed do
 		local chance = Config.AbsorbChance(slot.Level, essence.Level)
@@ -667,6 +667,8 @@ function Combat.DamagePlayer(character, damage, isMagic)
 		-- Bloqueado: no hace daño, pero gasta la barra de bloqueo
 		state.Guard -= damage
 		state.LastGuard = os.clock()
+		-- Todos ven cómo la guardia aguanta el golpe
+		Remotes.AttackFx:FireAllClients(character, "Block")
 		if state.Guard <= 0 then
 			state.Guard = 0
 			state.Guarding = false

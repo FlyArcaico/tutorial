@@ -254,34 +254,44 @@ local function locomotion(p)
 	return cycle(p.Length, contact, passing)
 end
 
--- Reposo: respira y cambia un poco el peso de pierna
+-- Reposo vivo: respira, pasa el peso de una pierna a otra (la otra rodilla se relaja),
+-- mira un poco alrededor y corrige la postura con pequeños ajustes de hombros y brazos.
+-- Movimientos suaves y pequeños para que no parezca exagerado.
 local function idle(p)
-	local function pose(breath)
+	-- breath: 0..1   shift: -1 (peso en la izquierda) .. 1 (derecha)
+	-- look: giro de la cabeza (grados)   lookUp: mirar arriba/abajo   adjust: ajuste de brazos
+	local function pose(breath, shift, look, lookUp, adjust)
+		local rightRelax = math.max(0, -shift) -- si el peso está a la izquierda, se relaja la derecha
+		local leftRelax = math.max(0, shift)
 		return {
-			Root = { up = p.Crouch + 0.03 * breath, roll = p.Shift * (1 - breath * 2) },
-			Waist = { lean = p.ChestLean - 2 * breath, yaw = p.ChestYaw },
-			Neck = { pitch = -2 * breath + p.HeadPitch, yaw = -p.ChestYaw },
-			RS = { 3 + p.ArmForward, p.ArmOut + 2 * breath },
-			RE = { p.Elbow },
+			Root = { up = p.Crouch + 0.03 * breath, roll = p.Shift * shift, side = 0.06 * shift },
+			Waist = { lean = p.ChestLean - 2 * breath, yaw = p.ChestYaw + look * 0.2, roll = -p.Shift * 0.6 * shift },
+			Neck = { pitch = p.HeadPitch - 2 * breath + lookUp, yaw = -p.ChestYaw + look * 0.8, roll = look * 0.08 },
+			RS = { 3 + p.ArmForward + adjust, p.ArmOut + 2 * breath + shift * 1.5 },
+			RE = { p.Elbow + adjust * 2 },
 			RW = { p.Wrist },
-			LS = { 3 + p.ArmForward, p.ArmOut + 2 * breath },
-			LE = { p.Elbow },
+			LS = { 3 + p.ArmForward - adjust * 0.5, p.ArmOut + 2 * breath - shift * 1.5 },
+			LE = { p.Elbow - adjust },
 			LW = { p.Wrist },
-			RH = { 0, p.LegOut },
-			RK = { p.Knee },
-			RA = { 0 },
-			LH = { 0, p.LegOut },
-			LK = { p.Knee },
-			LA = { 0 },
+			RH = { 3 * rightRelax, p.LegOut },
+			RK = { p.Knee + 9 * rightRelax },
+			RA = { -3 * rightRelax },
+			LH = { 3 * leftRelax, p.LegOut },
+			LK = { p.Knee + 9 * leftRelax },
+			LA = { -3 * leftRelax },
 		}
 	end
+	local length = p.Length * 2.2
 	return compile({
-		Length = p.Length,
+		Length = length,
 		Loop = true,
 		Frames = {
-			{ Time = 0, Pose = pose(0) },
-			{ Time = p.Length / 2, Pose = pose(1) },
-			{ Time = p.Length, Pose = pose(0) },
+			{ Time = 0, Pose = pose(0, 0, 0, 0, 0) },
+			{ Time = length * 0.2, Pose = pose(1, 0.6, 6, -2, 2) },
+			{ Time = length * 0.4, Pose = pose(0, 1, 10, 1, 0) },
+			{ Time = length * 0.6, Pose = pose(1, 0, -4, -3, -2) },
+			{ Time = length * 0.8, Pose = pose(0, -0.8, -9, 2, 1) },
+			{ Time = length, Pose = pose(0, 0, 0, 0, 0) },
 		},
 	})
 end
@@ -748,51 +758,85 @@ local function stance(p)
 end
 
 -- Sin arma: guardia de boxeo (puño izquierdo delante, derecho protegiendo la barbilla)
+-- Brazos cerca del cuerpo, codos muy doblados y los puños a la altura de la barbilla
 local FIST_STANCE = {
-	Turn = 25,
-	Crouch = -0.32,
-	Lean = 6,
-	ChestLean = 4,
-	HeadPitch = 8,
+	Turn = 22,
+	Crouch = -0.3,
+	Lean = 7,
+	ChestLean = 5,
+	HeadPitch = 9,
 	LegOut = 8,
-	Knee = 28,
-	RS = { 38, 12 },
-	RE = { 112 },
-	RW = { 0 },
-	LS = { 58, 8 },
-	LE = { 98 },
-	LW = { 0 },
+	Knee = 26,
+	RS = { 28, 3 },
+	RE = { 128 },
+	RW = { -8 },
+	LS = { 42, 1 },
+	LE = { 120 },
+	LW = { -8 },
 }
 -- Con espada: la empuñadura delante de la cintura y la hoja en diagonal, con la punta
 -- hacia el enemigo; la mano izquierda ayuda a sujetarla. Los brazos no tocan el cuerpo.
+-- (el agarre y la diagonal de la hoja se mantienen: brazo + codo + muñeca ≈ 54°)
 local SWORD_STANCE = {
-	Turn = 30,
-	Crouch = -0.36,
+	Turn = 28,
+	Crouch = -0.34,
 	Lean = 7,
-	ChestLean = 3,
-	HeadPitch = 4,
-	LegOut = 10,
-	Knee = 30,
-	RS = { 28, 14 },
-	RE = { 38 },
-	RW = { -18 },
-	LS = { 36, -6 },
-	LE = { 58 },
+	ChestLean = 4,
+	HeadPitch = 5,
+	LegOut = 9,
+	Knee = 28,
+	RS = { 18, 5 },
+	RE = { 66 },
+	RW = { -30 },
+	LS = { 28, -3 },
+	LE = { 78 },
 	LW = { 0 },
 }
 Anim.Guard = stance(FIST_STANCE)
 Anim.GuardSword = stance(SWORD_STANCE)
 -- Ogre: postura más ancha y baja, y la espada más alta (es más pesada)
-Anim.GuardOgre = stance(with(FIST_STANCE, { LegOut = 13, Crouch = -0.42, RS = { 42, 18 }, LS = { 60, 14 } }))
+Anim.GuardOgre = stance(with(FIST_STANCE, { LegOut = 13, Crouch = -0.4, RS = { 32, 8 }, LS = { 46, 6 } }))
 Anim.GuardSwordOgre = stance(with(SWORD_STANCE, {
 	LegOut = 13,
-	Crouch = -0.45,
-	RS = { 40, 16 },
-	RE = { 50 },
-	RW = { -10 },
-	LS = { 46, -4 },
-	LE = { 62 },
+	Crouch = -0.42,
+	RS = { 26, 9 },
+	RE = { 72 },
+	RW = { -24 },
+	LS = { 34, 2 },
+	LE = { 82 },
 }))
+
+-- Bloquear un golpe: el impacto empuja la guardia hacia atrás y vuelve (se pone encima de la guardia)
+local function blockHit(base)
+	local pushed = {
+		Root = { yaw = -base.Turn, up = base.Crouch - 0.08, lean = base.Lean - 6, forward = -0.3 },
+		Waist = { yaw = base.Turn * 0.45, lean = base.ChestLean - 10 },
+		Neck = { yaw = base.Turn * 0.55, pitch = base.HeadPitch - 6 },
+		RS = { base.RS[1] - 10, base.RS[2] + 3 },
+		RE = { base.RE[1] + 8 },
+		LS = { base.LS[1] - 12, base.LS[2] + 3 },
+		LE = { base.LE[1] + 8 },
+	}
+	local settled = {
+		Root = { yaw = -base.Turn, up = base.Crouch, lean = base.Lean, forward = 0 },
+		Waist = { yaw = base.Turn * 0.45, lean = base.ChestLean },
+		Neck = { yaw = base.Turn * 0.55, pitch = base.HeadPitch },
+		RS = base.RS,
+		RE = base.RE,
+		LS = base.LS,
+		LE = base.LE,
+	}
+	return compile({
+		Length = 0.32,
+		Frames = {
+			{ Time = 0, Pose = settled },
+			{ Time = 0.06, Pose = pushed, Ease = "Out" },
+			{ Time = 0.32, Pose = settled },
+		},
+	})
+end
+Anim.BlockHit = blockHit(FIST_STANCE)
+Anim.BlockHitSword = blockHit(SWORD_STANCE)
 
 -- Puñetazo: cargar -> golpe rápido con el brazo estirado -> volver. La otra mano en guardia.
 local function punch(isLeft)

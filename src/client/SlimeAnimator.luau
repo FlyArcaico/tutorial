@@ -147,11 +147,17 @@ function SlimeAnimator.PlayAttack(character)
 	end
 end
 
--- Magia o absorber: la luz interior brilla y salen chispas
-function SlimeAnimator.PlayCast(character)
+-- Magia o absorber: la luz interior brilla y salen chispas.
+-- kind = "Absorb" (cara contenta ^^) o "Ability" (cara concentrada)
+function SlimeAnimator.PlayCast(character, kind)
 	local state = find(character)
 	if state then
 		state.Cast = 1
+		if kind == "Absorb" then
+			state.AbsorbStart = os.clock()
+		else
+			state.CastStart = os.clock()
+		end
 		if state.Sparkles then
 			state.Sparkles:Emit(16)
 		end
@@ -272,24 +278,28 @@ local function animate(state, dt, now)
 	-- Expresión de la cara según lo que esté haciendo
 	if state.Face then
 		local dead = state.DeathStart ~= nil
-		local hurt = now - state.LastHurt < 0.7 -- acaba de recibir un golpe
+		local hurt = now - state.LastHurt < 0.6 -- acaba de recibir un golpe
+		local absorbing = now - (state.AbsorbStart or -10) < 1.2 -- absorbe contento
 		local attacking = attackTime < 0.5
-		local casting = state.Cast > 0.25 -- usa una habilidad o absorbe
+		local casting = now - (state.CastStart or -10) < 0.8 -- usa una habilidad
 		local running = state.Run > 0.5 and state.Move > 0.5
 		local lowHealth = humanoid.Health < humanoid.MaxHealth * 0.35
+		local busy = hurt or absorbing or attacking or casting or running
 		local idleSmile = state.Move < 0.2 and (now + state.Phase) % 9 < 1.4 -- de vez en cuando sonríe
 
 		local expression = "Normal"
-		if dead or (lowHealth and not (hurt or attacking or casting or running)) then
+		if dead or (lowHealth and not busy) then
 			expression = "Sad"
 		elseif hurt then
-			expression = "Surprised"
+			expression = "Hurt"
+		elseif absorbing or idleSmile then
+			expression = "Happy"
 		elseif attacking then
 			expression = "Angry"
 		elseif casting then
 			expression = "Focused"
-		elseif running or idleSmile then
-			expression = "Happy"
+		elseif running then
+			expression = "Energetic"
 		end
 		state.Face:Set(expression)
 	end

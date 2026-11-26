@@ -29,7 +29,9 @@ attackFxRemote.OnClientEvent:Connect(function(character, style)
 	if style == "SlimeLunge" then
 		SlimeAnimator.PlayAttack(character)
 	elseif style == "SlimeCast" then
-		SlimeAnimator.PlayCast(character)
+		SlimeAnimator.PlayCast(character, "Ability")
+	elseif style == "SlimeAbsorb" then
+		SlimeAnimator.PlayCast(character, "Absorb")
 	else
 		Animator.PlayAttack(character, style)
 	end

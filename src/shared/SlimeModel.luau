@@ -106,30 +106,40 @@ function SlimeModel.Pieces(form, options)
 		Sphere = true,
 	})
 
-	-- Placa de la cara: invisible, pegada a la superficie y mirando hacia fuera
+	-- Orientación de la superficie en un punto: gira hacia los lados y hacia arriba/abajo
+	-- siguiendo la curva del cuerpo, para que la cara parezca pegada y no flotando
+	local function onSurface(x, y, push)
+		local tiltUp = math.asin(math.clamp(y / ry, -1, 1)) * 0.8
+		return CFrame.new(x, y, surfaceZ(x, y, push)) * CFrame.Angles(0, -x / rx * 0.9, 0) * CFrame.Angles(tiltUp, 0, 0)
+	end
+
+	-- Placa de la cara: invisible, casi tocando la superficie
 	local function facePlate(name, x, y, width, height)
 		add({
 			Name = name,
 			Role = "Face",
 			Size = Vector3.new(width, height, d * 0.01),
-			Offset = CFrame.new(x, y, surfaceZ(x, y, 0.01)) * CFrame.Angles(0, -x / rx * 0.9, 0),
+			Offset = onSurface(x, y, 0.004),
 			Color = WHITE,
 			Transparency = 1,
 		})
 	end
 
+	-- Ojos alargados (2:1) en la parte media-alta de la cara, y una boca pequeña
+	local eyeX, eyeY = d * 0.19, h * 0.08
 	if faceStyle == "Plates" then
-		facePlate("FaceRightEye", d * 0.17, h * 0.1, d * 0.27, h * 0.24)
-		facePlate("FaceLeftEye", -d * 0.17, h * 0.1, d * 0.27, h * 0.24)
-		facePlate("FaceMouth", 0, -h * 0.08, d * 0.22, h * 0.14)
+		facePlate("FaceRightEye", eyeX, eyeY, d * 0.3, d * 0.15)
+		facePlate("FaceLeftEye", -eyeX, eyeY, d * 0.3, d * 0.15)
+		facePlate("FaceMouth", 0, -h * 0.1, d * 0.12, d * 0.075)
 	end
 
-	local eyeColor = Color3.fromRGB(18, 28, 60)
-	local segment = Vector3.new(d * 0.075, d * 0.034, d * 0.03)
+	local eyeColor = Color3.fromRGB(18, 22, 40)
+	local segment = Vector3.new(d * 0.09, d * 0.026, d * 0.025)
 	for _, side in { -1, 1 } do
-		-- Ojos de piezas (solo vista previa): una curva ◡ de 3 trocitos por fuera del cuerpo
-		local ex, ey = side * d * 0.17, h * 0.08
-		for _, bit in { { 0, -d * 0.013, 0 }, { -d * 0.058, 0, -0.5 }, { d * 0.058, 0, 0.5 } } do
+		-- Ojos de piezas (solo vista previa del menú): una línea alargada y curvada ∩,
+		-- hecha con 3 trocitos por fuera del cuerpo
+		local ex, ey = side * eyeX, eyeY
+		for _, bit in { { 0, d * 0.012, 0 }, { -d * 0.075, 0, 0.32 }, { d * 0.075, 0, -0.32 } } do
 			if faceStyle == "Plates" then
 				break
 			end
@@ -138,20 +148,20 @@ function SlimeModel.Pieces(form, options)
 				Name = "Eye",
 				Role = "Eye",
 				Size = segment,
-				Offset = CFrame.new(x, y, surfaceZ(x, y)) * CFrame.Angles(0, -x / rx * 0.9, bit[3]),
+				Offset = onSurface(x, y, 0.012) * CFrame.Angles(0, 0, bit[3]),
 				Color = eyeColor,
 			})
 		end
 
-		-- Mejillas sonrosadas
-		local cx, cy = side * d * 0.27, -h * 0.06
+		-- Mejillas sonrosadas: pequeñas y suaves, debajo y por fuera de los ojos
+		local cx, cy = side * d * 0.26, -h * 0.04
 		add({
 			Name = "Cheek",
 			Role = "Cheek",
-			Size = Vector3.new(d * 0.12, d * 0.06, d * 0.03),
-			Offset = CFrame.new(cx, cy, surfaceZ(cx, cy, 0.006)) * CFrame.Angles(0, -cx / rx * 0.9, 0),
+			Size = Vector3.new(d * 0.1, d * 0.045, d * 0.02),
+			Offset = onSurface(cx, cy, 0.003),
 			Color = Color3.fromRGB(255, 150, 195),
-			Transparency = 0.55,
+			Transparency = 0.62,
 			Sphere = true,
 		})
 	end

@@ -1,33 +1,44 @@
--- Cara del Slime con expresiones. Dibuja ojos y boca con líneas y óvalos de interfaz
--- (SurfaceGui) sobre las placas que crea el servidor (FaceRightEye, FaceLeftEye, FaceMouth).
--- Así se ven nítidas, se pueden cambiar al instante y no hacen falta imágenes subidas.
+-- Cara del Slime con expresiones, dibujada con líneas de interfaz (SurfaceGui) sobre las
+-- placas que crea el servidor (FaceRightEye, FaceLeftEye, FaceMouth).
 --
--- Expresiones: Normal (relajado), Happy (contento), Angry (enfadado), Focused (concentrado),
---              Sad (triste), Surprised (sorprendido)
+-- Estilo: cara de anime simple y limpia. Cada ojo es UNA sola línea negra, alargada y
+-- curvada, más gruesa en el centro y fina en las puntas (sin cejas). Boca diminuta.
+--
+-- Expresiones:
+--   Normal     ojos alargados y suavemente curvados (relajado)
+--   Energetic  como Normal pero un poco más curvados (al correr)
+--   Happy      ^^ cerrados hacia arriba (al absorber, de vez en cuando quieto)
+--   Angry      ojos inclinados hacia el centro (al atacar)
+--   Focused    ojos más finos y rectos (al usar una habilidad)
+--   Hurt       > < apretados (al recibir un golpe)
+--   Sad        ojos caídos hacia fuera (poca vida o muerto)
+local TweenService = game:GetService("TweenService")
+
 local SlimeFace = {}
 
-local INK = Color3.fromRGB(18, 28, 60)
-local WHITE = Color3.new(1, 1, 1)
-local TEAR = Color3.fromRGB(150, 220, 255)
-local TONGUE = Color3.fromRGB(255, 120, 150)
+local INK = Color3.fromRGB(18, 22, 40)
+local FADE = TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
-SlimeFace.Expressions = { "Normal", "Happy", "Angry", "Focused", "Sad", "Surprised" }
+SlimeFace.Expressions = { "Normal", "Energetic", "Happy", "Angry", "Focused", "Hurt", "Sad" }
 
-local EYE_CANVAS = Vector2.new(120, 100)
-local MOUTH_CANVAS = Vector2.new(120, 70)
+-- El lienzo de cada ojo es 2:1, igual que su placa (alargado)
+local EYE_CANVAS = Vector2.new(160, 80)
+local MOUTH_CANVAS = Vector2.new(80, 50)
 
 --------------------------------------------------------------------------------
--- Dibujo: líneas con puntas redondas, arcos y óvalos (en píxeles del lienzo)
+-- Dibujo
 --------------------------------------------------------------------------------
 
-local function line(parent, x1, y1, x2, y2, thickness, color)
-	local dx, dy = x2 - x1, y2 - y1
+-- Trazo recto con las puntas redondas
+local function stroke(parent, a, b, thickness)
+	local delta = b - a
 	local frame = Instance.new("Frame")
 	frame.AnchorPoint = Vector2.new(0.5, 0.5)
-	frame.Position = UDim2.fromOffset((x1 + x2) / 2, (y1 + y2) / 2)
-	frame.Size = UDim2.fromOffset(math.sqrt(dx * dx + dy * dy) + thickness, thickness)
-	frame.Rotation = math.deg(math.atan2(dy, dx))
-	frame.BackgroundColor3 = color or INK
+	frame.Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2)
+	frame.Size = UDim2.fromOffset(delta.Magnitude + thickness, thickness)
+	frame.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+	frame.BackgroundColor3 = INK
+	frame.BackgroundTransparency = 1 -- empieza oculto; se muestra con un fundido
 	frame.BorderSizePixel = 0
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0.5, 0)
@@ -36,109 +47,81 @@ local function line(parent, x1, y1, x2, y2, thickness, color)
 	return frame
 end
 
--- Arco de elipse; los ángulos en grados (0 = derecha, 90 = abajo)
-local function arc(parent, cx, cy, rx, ry, fromAngle, toAngle, thickness, color)
-	local segments = 7
-	local previous = nil
-	for index = 0, segments do
-		local angle = math.rad(fromAngle + (toAngle - fromAngle) * index / segments)
-		local point = Vector2.new(cx + math.cos(angle) * rx, cy + math.sin(angle) * ry)
-		if previous then
-			line(parent, previous.X, previous.Y, point.X, point.Y, thickness, color)
-		end
+-- Curva suave (bézier de 3 puntos) más gruesa en el centro y fina en las puntas,
+-- como una pincelada de anime
+local function curve(parent, p0, p1, p2, thickness)
+	local segments = 10
+	local previous = p0
+	for index = 1, segments do
+		local t = index / segments
+		local point = p0 * (1 - t) ^ 2 + p1 * 2 * (1 - t) * t + p2 * t ^ 2
+		local middle = (index - 0.5) / segments
+		local width = thickness * (0.45 + 0.55 * math.sin(middle * math.pi))
+		stroke(parent, previous, point, width)
 		previous = point
 	end
 end
 
-local function oval(parent, cx, cy, width, height, color, transparency)
-	local frame = Instance.new("Frame")
-	frame.AnchorPoint = Vector2.new(0.5, 0.5)
-	frame.Position = UDim2.fromOffset(cx, cy)
-	frame.Size = UDim2.fromOffset(width, height)
-	frame.BackgroundColor3 = color or INK
-	frame.BackgroundTransparency = transparency or 0
-	frame.BorderSizePixel = 0
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0.5, 0)
-	corner.Parent = frame
-	frame.Parent = parent
-	return frame
-end
+local V = Vector2.new
 
 --------------------------------------------------------------------------------
--- Diseños (para el ojo derecho del slime; el izquierdo es el espejo).
--- En el lienzo, la nariz queda a la derecha (x grande) para el ojo derecho.
+-- Diseños. Los ojos están dibujados para el ojo derecho del slime: en su lienzo,
+-- la nariz queda a la derecha (x grande). El ojo izquierdo es el espejo.
 --------------------------------------------------------------------------------
 
 local EYES = {
-	-- Relajado: ojos cerrados en curva suave ◡
-	Normal = function(canvas, mx)
-		arc(canvas, mx(60), 46, 30, 16, 0, 180, 9)
+	Normal = function(canvas, m)
+		curve(canvas, m(16, 50), m(80, 30), m(144, 50), 7)
 	end,
-	-- Contento: ojos cerrados hacia arriba ^
-	Happy = function(canvas, mx)
-		arc(canvas, mx(60), 64, 30, 22, 180, 360, 10)
+	Energetic = function(canvas, m)
+		curve(canvas, m(18, 54), m(80, 24), m(142, 54), 8)
 	end,
-	-- Enfadado: ceja inclinada hacia la nariz y ojo entornado
-	Angry = function(canvas, mx)
-		line(canvas, mx(18), 24, mx(102), 48, 9)
-		arc(canvas, mx(62), 76, 24, 13, 180, 360, 9)
+	Happy = function(canvas, m) -- ^
+		curve(canvas, m(32, 64), m(80, 4), m(128, 64), 8)
 	end,
-	-- Concentrado: ceja casi recta y ojo como una línea
-	Focused = function(canvas, mx)
-		line(canvas, mx(20), 30, mx(100), 40, 8)
-		line(canvas, mx(30), 66, mx(94), 66, 10)
+	Angry = function(canvas, m) -- inclinado hacia abajo por el lado de la nariz
+		curve(canvas, m(14, 26), m(84, 38), m(146, 60), 8)
 	end,
-	-- Triste: ceja levantada por el lado de la nariz, ojo caído y una lágrima
-	Sad = function(canvas, mx)
-		line(canvas, mx(18), 42, mx(100), 22, 8)
-		arc(canvas, mx(60), 76, 26, 12, 180, 360, 9)
-		oval(canvas, mx(32), 92, 13, 18, TEAR, 0.15)
+	Focused = function(canvas, m)
+		curve(canvas, m(18, 44), m(80, 40), m(142, 50), 6)
 	end,
-	-- Sorprendido: ojo abierto y redondo con brillo
-	Surprised = function(canvas, mx)
-		oval(canvas, mx(60), 56, 46, 64, INK)
-		oval(canvas, mx(71), 41, 14, 17, WHITE)
-		oval(canvas, mx(52), 70, 7, 8, WHITE, 0.3)
+	Hurt = function(canvas, m) -- > (apunta a la nariz)
+		stroke(canvas, m(50, 20), m(104, 40), 7)
+		stroke(canvas, m(104, 40), m(50, 60), 7)
+	end,
+	Sad = function(canvas, m) -- caído por el lado de fuera
+		curve(canvas, m(16, 60), m(82, 40), m(144, 34), 7)
 	end,
 }
 
 local MOUTHS = {
 	Normal = function(canvas)
-		arc(canvas, 60, 22, 13, 9, 0, 180, 6)
+		curve(canvas, V(32, 20), V(40, 30), V(48, 20), 4)
+	end,
+	Energetic = function(canvas)
+		curve(canvas, V(30, 19), V(40, 33), V(50, 19), 4.5)
 	end,
 	Happy = function(canvas)
-		-- Boca abierta en forma de D, con la lengua
-		local clip = Instance.new("Frame")
-		clip.AnchorPoint = Vector2.new(0.5, 0)
-		clip.Position = UDim2.fromOffset(60, 16)
-		clip.Size = UDim2.fromOffset(46, 34)
-		clip.BackgroundTransparency = 1
-		clip.ClipsDescendants = true
-		clip.Parent = canvas
-		oval(clip, 23, 0, 46, 64, INK)
-		oval(clip, 23, 28, 26, 16, TONGUE)
+		curve(canvas, V(28, 19), V(40, 35), V(52, 19), 4.5)
 	end,
 	Angry = function(canvas)
-		arc(canvas, 60, 42, 15, 9, 180, 360, 6)
+		curve(canvas, V(34, 28), V(40, 23), V(46, 28), 3.5)
 	end,
-	Focused = function(canvas)
-		line(canvas, 50, 34, 70, 34, 6)
+	-- Concentrado: sin boca
+	Focused = function() end,
+	Hurt = function(canvas) -- boquita ondulada
+		stroke(canvas, V(31, 27), V(36, 22), 3.5)
+		stroke(canvas, V(36, 22), V(40, 27), 3.5)
+		stroke(canvas, V(40, 27), V(44, 22), 3.5)
+		stroke(canvas, V(44, 22), V(49, 27), 3.5)
 	end,
 	Sad = function(canvas)
-		arc(canvas, 60, 46, 17, 11, 180, 360, 6)
-	end,
-	Surprised = function(canvas)
-		local ring = oval(canvas, 60, 34, 20, 26, INK, 1)
-		local stroke = Instance.new("UIStroke")
-		stroke.Color = INK
-		stroke.Thickness = 5
-		stroke.Parent = ring
+		curve(canvas, V(33, 30), V(40, 22), V(47, 30), 3.5)
 	end,
 }
 
 --------------------------------------------------------------------------------
--- Montar la cara sobre las placas y cambiar de expresión
+-- Montar la cara sobre las placas y cambiar de expresión (con fundido suave)
 --------------------------------------------------------------------------------
 
 local function surface(plate, canvasSize)
@@ -147,7 +130,7 @@ local function surface(plate, canvasSize)
 	gui.Face = Enum.NormalId.Front
 	gui.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
 	gui.CanvasSize = canvasSize
-	gui.LightInfluence = 0.25
+	gui.LightInfluence = 0.2
 	gui.Parent = plate
 	return gui
 end
@@ -163,26 +146,27 @@ function SlimeFace.Attach(body)
 		return nil
 	end
 
-	local layers = {} -- [expresión] = { frames }
+	local strokes = {} -- [expresión] = { frames }
 	for _, expression in SlimeFace.Expressions do
-		layers[expression] = {}
+		strokes[expression] = {}
 	end
 
-	local function build(plate, canvasSize, draw, mirrored)
+	local function build(plate, canvasSize, designs, mirrored)
 		local gui = surface(plate, canvasSize)
 		for _, expression in SlimeFace.Expressions do
 			local canvas = Instance.new("Frame")
 			canvas.Name = expression
 			canvas.Size = UDim2.fromScale(1, 1)
 			canvas.BackgroundTransparency = 1
-			canvas.Visible = false
 			canvas.Parent = gui
 			-- El ojo izquierdo es el espejo del derecho
-			local function mx(x)
-				return if mirrored then canvasSize.X - x else x
+			local function m(x, y)
+				return V(if mirrored then canvasSize.X - x else x, y)
 			end
-			draw[expression](canvas, mx)
-			table.insert(layers[expression], canvas)
+			designs[expression](canvas, m)
+			for _, child in canvas:GetChildren() do
+				table.insert(strokes[expression], child)
+			end
 		end
 	end
 
@@ -191,21 +175,31 @@ function SlimeFace.Attach(body)
 	build(plates.Mouth, MOUTH_CANVAS, MOUTHS, false)
 
 	local controller = { Current = nil }
-	function controller.Set(_, expression)
-		if controller.Current == expression or not layers[expression] then
+
+	local function show(expression, visible, instant)
+		for _, frame in strokes[expression] do
+			local goal = if visible then 0 else 1
+			if instant then
+				frame.BackgroundTransparency = goal
+			else
+				TweenService:Create(frame, FADE, { BackgroundTransparency = goal }):Play()
+			end
+		end
+	end
+
+	-- Cambia de expresión con un fundido rápido (sin saltos bruscos)
+	function controller.Set(_, expression, instant)
+		if controller.Current == expression or not strokes[expression] then
 			return
 		end
 		if controller.Current then
-			for _, canvas in layers[controller.Current] do
-				canvas.Visible = false
-			end
+			show(controller.Current, false, instant)
 		end
-		for _, canvas in layers[expression] do
-			canvas.Visible = true
-		end
+		show(expression, true, instant)
 		controller.Current = expression
 	end
-	controller:Set("Normal")
+
+	controller:Set("Normal", true)
 	return controller
 end
 

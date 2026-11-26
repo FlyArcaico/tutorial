@@ -47,13 +47,34 @@ Estado del proyecto por fases. Se actualiza al terminar cada fase.
       Cambian solas: atacar → enfadado, golpe → sorprendido, habilidad → concentrado,
       correr → contento, poca vida o muerto → triste.
 
+## Fase B.2 — Refinado de la cara del Slime y detalles (hecha)
+
+Probado por el dueño en Studio: andar, correr, morir y reaparecer funcionan bien.
+
+- [x] Cara del Slime rehecha (`client/SlimeFace.luau`): sin cejas; cada ojo es UNA línea
+      alargada y curvada (más gruesa en el centro), boca diminuta o ninguna.
+      Expresiones: Normal, Energetic (correr), Happy `^^` (absorber), Angry (atacar, ojos
+      inclinados hacia el centro), Focused (habilidad), Hurt `> <` (golpe), Sad (poca vida).
+      Cambios con fundido suave.
+- [x] Cara y mejillas siguen la curva del cuerpo (giran también hacia arriba/abajo) y van
+      casi pegadas a la superficie. Mejillas más pequeñas y suaves.
+- [x] Absorber y usar habilidades se distinguen (`SlimeAbsorb` / `SlimeCast`).
+- [x] Guardia más compacta tipo boxeo (brazos cerca del cuerpo, codos doblados, manos a la
+      altura del pecho), conservando el agarre de la espada; reacción al bloquear un golpe.
+- [x] Reposo más vivo: cabeza que mira alrededor, cambio de peso entre piernas, pequeños
+      ajustes de hombros y brazos. Andar y correr sin cambios.
+- [x] Silenciado solo el sonido de muerte de Roblox.
+- [x] Cuerpo del Slime, colores de las evoluciones (incluido el morado) y animaciones de
+      movimiento sin cambios.
+
 ## Decisiones pendientes (preguntar al dueño)
 
 - Invocados: el juego tiene **Fuego / Agua / Planta**; el documento de diseño habla de **Hielo**.
   De momento se mantiene Planta.
 - Elf normal: ¿+3 de oro como el Major Elf? De momento solo el Major Elf.
 - PvP: no existe; la zona segura protege de los monstruos (en el servidor).
-- Imagen de referencia de las caras del Slime: no llegó; las expresiones son de estilo anime genérico.
+- Imágenes de referencia de la cara del Slime: no llegaron a Claude (solo texto); la cara se
+  ha hecho según la descripción escrita. Si se adjuntan, se ajusta a ellas.
 
 ## Recursos externos necesarios (no se inventan IDs)
 
