@@ -1374,11 +1374,6 @@ Config.Settings = {
 		Name = "Números de daño",
 		Description = "Ver el daño que haces encima de los monstruos",
 	},
-	{
-		Id = "MonsterBars",
-		Name = "Barras de vida de monstruos",
-		Description = "Ver la vida y el nivel de los monstruos",
-	},
 	{ Id = "SprintFov", Name = "Efecto de cámara al correr", Description = "La cámara se abre un poco al correr" },
 	{ Id = "Messages", Name = "Mensajes en pantalla", Description = "Avisos de XP, oro, misiones..." },
 }

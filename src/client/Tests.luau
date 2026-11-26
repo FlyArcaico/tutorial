@@ -71,6 +71,17 @@ function Tests.Run()
 		end
 	end
 
+	-- Fijar objetivo: verde con mucha vida, amarillo a media vida, rojo con poca
+	local TargetLock = require(script.Parent.TargetLock)
+	local function greenest(color)
+		return color.G > color.R and color.G > color.B
+	end
+	check(greenest(TargetLock.HealthColor(1)), "Objetivo: con la vida llena la barra debería ser verde")
+	local mid = TargetLock.HealthColor(0.4)
+	check(mid.R > 0.7 and mid.G > 0.5 and mid.B < 0.4, "Objetivo: a media vida la barra debería ser amarilla")
+	local low = TargetLock.HealthColor(0.1)
+	check(low.R > 0.7 and low.G < 0.4, "Objetivo: con poca vida la barra debería ser roja")
+
 	-- Morir debe acabar con el cuerpo tumbado y bajado al suelo
 	local lying = AnimationData.Sample(AnimationData.Animations.Death, AnimationData.Animations.Death.Length)
 	check(lying.Root.Position.Y < -1.5, "Morir: el cuerpo no baja hasta el suelo")

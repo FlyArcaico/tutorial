@@ -469,59 +469,10 @@ builders.Mesh = function(root, _add, s, _color, _eyeColor, model, def)
 end
 
 --------------------------------------------------------------------------------
--- Barra de vida, números de daño y esencias
+-- Números de daño y esencias
 --------------------------------------------------------------------------------
 
-local function createHealthBar(state, displayName, level)
-	local billboard = Instance.new("BillboardGui")
-	billboard.Name = "HealthBar"
-	billboard.Adornee = state.Root
-	billboard.Size = UDim2.fromOffset(150, 34)
-	billboard.StudsOffsetWorldSpace = Vector3.new(0, state.TopOffset, 0)
-	billboard.MaxDistance = 90
-	billboard.LightInfluence = 0
-	billboard.Parent = state.Root
-
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Size = UDim2.new(1, 0, 0, 16)
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.Font = Enum.Font.GothamBold
-	nameLabel.TextSize = 13
-	nameLabel.TextColor3 = WHITE
-	nameLabel.TextStrokeTransparency = 0.3
-	nameLabel.RichText = true
-	nameLabel.Text = displayName .. '  <font color="#FFD25A">Nv. ' .. level .. "</font>"
-	nameLabel.Parent = billboard
-
-	local back = Instance.new("Frame")
-	back.Position = UDim2.fromOffset(0, 19)
-	back.Size = UDim2.new(1, 0, 0, 11)
-	back.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
-	back.Parent = billboard
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 5)
-	corner.Parent = back
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = BLACK
-	stroke.Thickness = 1.5
-	stroke.Parent = back
-
-	local fill = Instance.new("Frame")
-	fill.Size = UDim2.fromScale(1, 1)
-	fill.BackgroundColor3 = Color3.fromRGB(90, 220, 90)
-	fill.BorderSizePixel = 0
-	fill.Parent = back
-	local fillCorner = Instance.new("UICorner")
-	fillCorner.CornerRadius = UDim.new(0, 5)
-	fillCorner.Parent = fill
-
-	local humanoid = state.Humanoid
-	humanoid.HealthChanged:Connect(function(health)
-		local ratio = math.clamp(health / humanoid.MaxHealth, 0, 1)
-		TweenService:Create(fill, TweenInfo.new(0.15), { Size = UDim2.fromScale(ratio, 1) }):Play()
-		fill.BackgroundColor3 = Color3.fromRGB(230, 60, 50):Lerp(Color3.fromRGB(90, 220, 90), ratio)
-	end)
-end
+-- (Sin barras de vida flotantes: la vida se ve al fijar un objetivo, client/TargetLock.luau)
 
 local function showDamageNumber(state, amount, color)
 	local billboard = Instance.new("BillboardGui")
@@ -856,7 +807,6 @@ local function spawnMonster(slot)
 		NextBurnTick = 0,
 	}
 	model:SetAttribute("AIState", "Idle")
-	createHealthBar(state, def.DisplayName, level)
 
 	-- No choca con jugadores ni con otros monstruos (sí con el mundo): ver Physics.luau
 	Physics.SetGroup(model, Physics.MONSTERS)
@@ -881,10 +831,6 @@ local function spawnMonster(slot)
 			createEssence(monsterId, level, root.Position)
 		end
 
-		local bar = root:FindFirstChild("HealthBar")
-		if bar then
-			bar:Destroy()
-		end
 		local fire = root:FindFirstChild("Burning")
 		if fire then
 			fire:Destroy()

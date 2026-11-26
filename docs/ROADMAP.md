@@ -154,6 +154,21 @@ Copia de seguridad previa: etiqueta git `backup-antes-fase1`.
       aggro de quien le pega.
 - [ ] Volver a probar en Studio: teletransporte, golpes de lado y detrás, persecución larga.
 
+## Fase 2 — Fijar objetivo (hecho, pendiente de probar en Studio)
+
+- [x] `client/TargetLock.luau`: rueda del ratón = seleccionar el más cercano / pasar al
+      siguiente (60 studs); clic con la rueda = soltar; se suelta solo si muere, se aleja
+      (90 studs) o mueres. El zoom pasa a las teclas I / O.
+- [x] Cámara que encuadra al objetivo encima de la cámara normal (suave, sin meterse en
+      paredes); al soltar, la cámara normal sigue desde donde estaba.
+- [x] Panel arriba a la izquierda: retrato 3D (copia de la cabeza en un ViewportFrame, con
+      movimiento suave), nombre y barra de vida sin números (verde / amarillo / rojo, rastro
+      de daño, destello y sacudida al golpear). Contorno dorado sobre el enemigo fijado.
+- [x] Quitadas las barras de vida flotantes (y su opción en Ajustes).
+- Parpadeo del retrato: no es posible con el Goblin actual (los ojos están pintados en la
+  textura). Se puede preparar en el Goblin Guerrero (ojos/párpados como piezas aparte).
+- [ ] Goblin Guerrero (Blender): esperando las imágenes de referencia del dueño.
+
 ## Decisiones pendientes (preguntar al dueño)
 
 - Invocados: el juego tiene **Fuego / Agua / Planta**; el documento de diseño habla de **Hielo**.

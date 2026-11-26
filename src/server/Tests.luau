@@ -372,7 +372,7 @@ function Tests.RunLive(modules)
 		check(victim.Dead and diedCount == 1, "Muerte: debería procesarse exactamente una vez")
 		check(victimSlot.Model == nil, "Muerte: el sitio debería quedar libre")
 		check(oldModel:GetAttribute("AIState") == "Dead", "Muerte: el monstruo sigue activo")
-		check(oldModel:FindFirstChild("HealthBar", true) == nil, "Muerte: la barra de vida no se quitó")
+		check(oldModel:FindFirstChild("HealthBar", true) == nil, "Muerte: no debería haber barras de vida flotantes")
 		check(#oldModel:GetDescendants() > 5, "Muerte: el cuerpo se rompió (explosión de Roblox)")
 
 		task.wait(Config.MonsterSetting(def, "CorpseTime") + 0.3)
@@ -387,7 +387,10 @@ function Tests.RunLive(modules)
 			local state = Monsters.GetActive()[victimSlot.Model]
 			check(state ~= nil and state.Humanoid.Health == state.Humanoid.MaxHealth, "Reaparecer: sin la vida llena")
 			check(state ~= nil and state.Target == nil and state.Mode == "Idle", "Reaparecer: no empezó tranquilo")
-			check(victimSlot.Model:FindFirstChild("HealthBar", true) ~= nil, "Reaparecer: sin barra de vida")
+			check(
+				victimSlot.Model:FindFirstChild("HealthBar", true) == nil,
+				"Reaparecer: no debería tener barra flotante"
+			)
 			local home = victimSlot.Home
 			local position = victimSlot.Model:GetPivot().Position
 			check(

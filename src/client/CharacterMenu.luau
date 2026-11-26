@@ -989,25 +989,6 @@ task.spawn(function()
 	end)
 end)
 
-task.spawn(function()
-	local monsters = Workspace:WaitForChild("Monsters")
-	local function apply(billboard)
-		billboard.Enabled = settingOn("MonsterBars")
-	end
-	monsters.DescendantAdded:Connect(function(descendant)
-		if descendant:IsA("BillboardGui") and descendant.Name == "HealthBar" then
-			apply(descendant)
-		end
-	end)
-	player:GetAttributeChangedSignal("SettingMonsterBars"):Connect(function()
-		for _, descendant in monsters:GetDescendants() do
-			if descendant:IsA("BillboardGui") and descendant.Name == "HealthBar" then
-				apply(descendant)
-			end
-		end
-	end)
-end)
-
 --------------------------------------------------------------------------------
 -- API
 --------------------------------------------------------------------------------

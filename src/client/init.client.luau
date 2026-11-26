@@ -11,6 +11,7 @@ local Menu = require(script.Menu)
 local MonsterAnimator = require(script.MonsterAnimator)
 local ShopWindow = require(script.ShopWindow)
 local SlimeAnimator = require(script.SlimeAnimator)
+local TargetLock = require(script.TargetLock)
 
 local remotes = ReplicatedStorage:WaitForChild("Remotes")
 local returnToMenuRemote = remotes:WaitForChild("ReturnToMenu")
@@ -21,6 +22,8 @@ local player = Players.LocalPlayer
 Animator.Start()
 SlimeAnimator.Start()
 MonsterAnimator.Start()
+-- Fijar objetivo con la rueda del ratón (retrato, nombre y vida del enemigo)
+TargetLock.Start()
 
 attackFxRemote.OnClientEvent:Connect(function(character, style)
 	if not character then
